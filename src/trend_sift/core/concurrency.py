@@ -18,7 +18,7 @@ def map_concurrently(
     if max_workers < 1:
         raise ValueError("max_workers 必须至少为 1")
 
-    work = list(items)
+    work = items if isinstance(items, list) else list(items)
     if not work:
         return []
     if max_workers == 1:

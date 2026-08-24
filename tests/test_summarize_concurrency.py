@@ -1,5 +1,4 @@
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -38,6 +37,7 @@ def test_github_batch_skips_cache_runs_concurrently_and_saves_in_order(
     active = 0
     peak = 0
     called: list[str] = []
+    workers_ready = threading.Barrier(3)
 
     def fake_summarize_one(
         full_name: str,
@@ -51,7 +51,7 @@ def test_github_batch_skips_cache_runs_concurrently_and_saves_in_order(
             called.append(full_name)
             active += 1
             peak = max(peak, active)
-        time.sleep(0.02)
+        workers_ready.wait(timeout=1)
         with lock:
             active -= 1
         return summarize.Summary(full_name, f"summary-{full_name}", "model")

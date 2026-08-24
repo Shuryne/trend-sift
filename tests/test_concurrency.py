@@ -1,5 +1,4 @@
 import threading
-import time
 
 import pytest
 
@@ -10,13 +9,15 @@ def test_map_concurrently_bounds_workers_and_preserves_order() -> None:
     lock = threading.Lock()
     active = 0
     peak = 0
+    first_batch_ready = threading.Barrier(3)
 
     def work(item: int) -> int:
         nonlocal active, peak
         with lock:
             active += 1
             peak = max(peak, active)
-        time.sleep(0.02)
+        if item < first_batch_ready.parties:
+            first_batch_ready.wait(timeout=1)
         with lock:
             active -= 1
         return item * 2
