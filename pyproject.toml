@@ -1,0 +1,72 @@
+[project]
+name = "trend-sift"
+version = "0.1.0"
+description = "聚合 GitHub Trending 与 Hacker News，使用 LLM 生成中文摘要并推送飞书"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "trend-sift contributors" }]
+keywords = ["github-trending", "hacker-news", "feishu", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "httpx>=0.28.1",
+    "openai>=2.46.0",
+    "pydantic-settings>=2.7.0",
+    "selectolax>=0.3.27",
+    "tenacity>=9.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.400",
+    "pytest>=8.3.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.12.0",
+]
+
+[project.scripts]
+trend-sift = "trend_sift.cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trend_sift"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "BLE"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-config --strict-markers --cov=trend_sift --cov-report=term-missing --cov-fail-under=80"
+
+[tool.coverage.run]
+branch = true
+omit = [
+    "src/trend_sift/cli/*",
+    "src/trend_sift/core/llm.py",
+    "src/trend_sift/notifications/*",
+    "src/trend_sift/sources/*/enrich.py",
+    "src/trend_sift/sources/*/fetcher.py",
+    "src/trend_sift/sources/*/notify.py",
+    "src/trend_sift/sources/*/pipeline.py",
+    "src/trend_sift/sources/*/summarize.py",
+]
