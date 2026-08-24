@@ -1,0 +1,28 @@
+{
+  "hits": [
+    {
+      "objectID": "100",
+      "title": "Lower-ranked response",
+      "url": "https://example.com/low",
+      "author": "alice",
+      "points": 120,
+      "num_comments": 12,
+      "created_at_i": 1700000000
+    },
+    {
+      "objectID": "200",
+      "title": "Top story",
+      "url": null,
+      "story_text": "Ask HN text",
+      "author": "bob",
+      "points": 450,
+      "num_comments": 99,
+      "created_at_i": 1700000100
+    },
+    {
+      "objectID": null,
+      "title": "Invalid record",
+      "points": 999
+    }
+  ]
+}
