@@ -52,4 +52,5 @@ def test_doctor_allows_missing_feishu(
     output = capsys.readouterr().out
     assert "仅正式推送需要" in output
     assert "LLM 摘要额度" in output
+    assert "LLM 摘要并发" in output
     assert "全部就绪" in output

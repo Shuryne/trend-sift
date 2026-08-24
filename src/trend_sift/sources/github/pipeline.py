@@ -5,8 +5,10 @@ failures, and notifications remain pending until their delivery records are writ
 """
 
 import logging
+import time
 from typing import Any
 
+from ...core.config import settings
 from ...core.schema import init_db
 from ...core.store import connect, finish_run, start_run, today_str
 from ...notifications.feishu import send_alert
@@ -97,6 +99,7 @@ def run_enrich(snapshot_date: str | None = None, force: bool = False) -> dict[st
 
 
 def run_summarize(snapshot_date: str | None = None, force: bool = False) -> dict[str, Any]:
+    started = time.perf_counter()
     date = snapshot_date or today_str()
     init_db()
     with connect() as conn:
@@ -114,6 +117,8 @@ def run_summarize(snapshot_date: str | None = None, force: bool = False) -> dict
         "failed": len(results) - ok,
         "skipped_cached": len(repos) - len(results),
         "prompt_version": PROMPT_VERSION,
+        "concurrency": settings.llm_summary_concurrency,
+        "elapsed_seconds": round(time.perf_counter() - started, 3),
     }
 
 

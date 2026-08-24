@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     llm_response_format: LlmResponseFormat = "auto"
     llm_summary_initial_tokens: Annotated[int, Field(ge=256, le=32768)] = 1500
     llm_summary_max_tokens: Annotated[int, Field(ge=256, le=32768)] = 6000
+    llm_summary_concurrency: Annotated[int, Field(ge=1, le=20)] = 5
 
     github_token: str = ""
     github_periods: str = "daily,weekly,monthly"

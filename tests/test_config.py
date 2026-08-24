@@ -16,6 +16,7 @@ def test_settings_defaults_without_env_file() -> None:
     assert settings.notify_mode == "digest"
     assert settings.llm_summary_initial_tokens == 1500
     assert settings.llm_summary_max_tokens == 6000
+    assert settings.llm_summary_concurrency == 5
 
 
 def test_settings_use_public_environment_names(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -48,6 +49,13 @@ def test_settings_reject_invalid_hn_limit() -> None:
 def test_settings_reject_decreasing_llm_token_range() -> None:
     with pytest.raises(ValidationError, match="LLM_SUMMARY_MAX_TOKENS"):
         Settings(llm_summary_initial_tokens=3000, llm_summary_max_tokens=1500)
+
+
+def test_settings_reject_invalid_llm_concurrency() -> None:
+    with pytest.raises(ValidationError):
+        Settings(llm_summary_concurrency=0)
+    with pytest.raises(ValidationError):
+        Settings(llm_summary_concurrency=21)
 
 
 def test_github_periods_are_validated(monkeypatch: pytest.MonkeyPatch) -> None:
