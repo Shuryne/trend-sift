@@ -8,6 +8,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 
+from ...core.concurrency import map_concurrently
 from ...core.config import settings
 from ...core.llm import LLMError, complete_json
 from ...core.store import connect, now_iso
@@ -112,12 +113,18 @@ def _save_summary(conn: sqlite3.Connection, s: Summary) -> None:
     )
 
 
+def _summarize_job(
+    job: tuple[str, str, str | None, str | None, str | None],
+) -> Summary:
+    return summarize_one(*job)
+
+
 def summarize_batch(stories: list[tuple[str, str]], force: bool = False) -> list[Summary]:
     """Summarize ``(object_id, title)`` pairs not already cached.
 
     Empty cached results are retried because most failures are transient.
     """
-    out: list[Summary] = []
+    jobs: list[tuple[str, str, str | None, str | None, str | None]] = []
     with connect() as conn:
         for object_id, title in stories:
             if not force:
@@ -129,8 +136,21 @@ def summarize_batch(stories: list[tuple[str, str]], force: bool = False) -> list
                 if existing and existing["summary_zh"]:
                     continue
             story_text, article, site = _load_inputs(conn, object_id)
-            s = summarize_one(object_id, title, site, story_text, article)
+            jobs.append((object_id, title, site, story_text, article))
+
+    log.info(
+        "开始生成 %d 条 HN 摘要，并发数 %d",
+        len(jobs),
+        settings.llm_summary_concurrency,
+    )
+    out = map_concurrently(
+        _summarize_job,
+        jobs,
+        max_workers=settings.llm_summary_concurrency,
+    )
+
+    with connect() as conn:
+        for s in out:
             _save_summary(conn, s)
-            out.append(s)
-            log.info("HN %s -> %s", object_id, s.summary_zh or f"（失败：{s.error}）")
+            log.info("HN %s -> %s", s.object_id, s.summary_zh or f"（失败：{s.error}）")
     return out

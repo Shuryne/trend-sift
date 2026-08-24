@@ -62,6 +62,7 @@ Compose 每次创建一个执行完即退出的任务容器。SQLite 与应用�
 | `LLM_RESPONSE_FORMAT` | 否 | `auto` | `auto`、`json_schema`、`json_object` 或 `text`；已知服务商能力时可固定 |
 | `LLM_SUMMARY_INITIAL_TOKENS` | 否 | `1500` | 摘要首次请求的输出额度 |
 | `LLM_SUMMARY_MAX_TOKENS` | 否 | `6000` | 推理耗尽时自适应增长的硬上限 |
+| `LLM_SUMMARY_CONCURRENCY` | 否 | `5` | 同时生成的摘要数，范围 1–20；设为 1 可恢复串行 |
 | `GITHUB_TOKEN` | 建议 | — | 公开仓库只读 token；避免匿名限流 |
 | `GITHUB_PERIODS` | 否 | `daily,weekly,monthly` | GitHub 榜单周期 |
 | `GITHUB_REQUEST_DELAY_SECONDS` | 否 | `2.0` | GitHub 请求间隔 |

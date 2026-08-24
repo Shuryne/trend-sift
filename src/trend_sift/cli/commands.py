@@ -81,7 +81,8 @@ def cmd_gh_summarize(args: argparse.Namespace) -> int:
     s = gh_pipeline.run_summarize(args.date, force=args.force)
     print(
         f"\n摘要（prompt 版本 {s['prompt_version']}）："
-        f"新生成 {s['ok']}，失败 {s['failed']}，命中缓存 {s['skipped_cached']}"
+        f"新生成 {s['ok']}，失败 {s['failed']}，命中缓存 {s['skipped_cached']}，"
+        f"并发 {s['concurrency']}，耗时 {s['elapsed_seconds']:.2f} 秒"
     )
     return 0
 
@@ -251,7 +252,8 @@ def cmd_hn_summarize(args: argparse.Namespace) -> int:
     s = hn_pipeline.run_summarize(args.date, force=args.force)
     print(
         f"\n摘要（prompt 版本 {s['prompt_version']}）："
-        f"新生成 {s['ok']}，失败 {s['failed']}，命中缓存 {s['skipped_cached']}"
+        f"新生成 {s['ok']}，失败 {s['failed']}，命中缓存 {s['skipped_cached']}，"
+        f"并发 {s['concurrency']}，耗时 {s['elapsed_seconds']:.2f} 秒"
     )
     return 0
 
@@ -408,6 +410,7 @@ def cmd_doctor(_: argparse.Namespace) -> int:
         "LLM 摘要额度",
         f"{settings.llm_summary_initial_tokens} → {settings.llm_summary_max_tokens} tokens",
     )
+    note("·", "LLM 摘要并发", str(settings.llm_summary_concurrency))
     note(
         "✓" if settings.github_token else "!",
         "GITHUB_TOKEN",
