@@ -1,8 +1,7 @@
-"""GitHub Trending 流水线：抓取 -> 归档 -> 解析 -> 富化 -> 摘要 -> 推送。
+"""GitHub pipeline: fetch, archive, parse, enrich, summarize, and notify.
 
-每一段都以 SQLite 的状态为输入输出，因此可以独立重跑：
-抓取失败不影响昨天的数据，摘要失败不影响已入库的快照，
-推送失败下次运行会自动补发（notifications 表里没记录就还算待推送）。
+SQLite-backed stages can be rerun independently. Historical snapshots survive fetch
+failures, and notifications remain pending until their delivery records are written.
 """
 
 import logging
@@ -30,7 +29,7 @@ log = logging.getLogger(__name__)
 
 
 def run_fetch(periods: list[Period], snapshot_date: str | None = None) -> dict[str, Any]:
-    """抓取当日榜单并入库。返回本次运行的统计。"""
+    """Fetch and persist a snapshot while returning run statistics."""
     date = snapshot_date or today_str()
     init_db()
 
@@ -45,7 +44,7 @@ def run_fetch(periods: list[Period], snapshot_date: str | None = None) -> dict[s
 
     with connect() as conn:
         run_id = start_run(conn, "github")
-        # 必须在写入今日快照前取，否则今天的仓库会被当成「以前见过」
+        # Read prior repositories before today's rows affect novelty detection.
         seen_before = repos_seen_before(conn, date)
         today_repos: set[str] = set()
 
@@ -62,7 +61,7 @@ def run_fetch(periods: list[Period], snapshot_date: str | None = None) -> dict[s
 
             try:
                 snaps = parse_trending(page.html, date, period, page.fetched_at)
-            except Exception as exc:  # noqa: BLE001 — 解析失败不应中断其他榜单
+            except Exception as exc:  # noqa: BLE001 — isolate each period
                 log.error("解析 %s 榜单失败：%s", period, exc)
                 errors.append(f"{period} 解析失败: {exc}")
                 stats["periods"][period] = {"error": f"parse: {exc}"}
@@ -142,7 +141,7 @@ def run_all(
     dry_run: bool = False,
     alert_on_error: bool = True,
 ) -> dict[str, Any]:
-    """完整流水线。任一阶段失败都记录并继续，最后按需告警。"""
+    """Run every stage, isolate failures, and send an alert when appropriate."""
     date = snapshot_date or today_str()
     stats: dict[str, Any] = {"snapshot_date": date}
     errors: list[str] = []
@@ -158,10 +157,9 @@ def run_all(
         try:
             result = fn()
             stats[name] = result
-            # fetch 阶段自己吞了逐榜的异常并记在 errors 里，这里要捞出来 ——
-            # 否则某个榜单挂了整条流水线仍报 ok，也不会触发下面的告警
+            # Fetch isolates period failures, so propagate its error list here.
             errors.extend(result.get("errors", []) if isinstance(result, dict) else [])
-        except Exception as exc:  # noqa: BLE001 — 单阶段失败不应中断整条流水线
+        except Exception as exc:  # noqa: BLE001 — isolate pipeline stages
             log.exception("阶段 %s 失败", name)
             stats[name] = {"error": str(exc)}
             errors.append(f"{name}: {exc}")
@@ -169,7 +167,7 @@ def run_all(
     stats["status"] = "ok" if not errors else "partial"
     stats["errors"] = errors
 
-    # 静默失败是最糟的情况：任务挂了几周都没人发现。必须主动告警。
+    # Surface unattended failures instead of relying solely on cron logs.
     if errors and alert_on_error and not dry_run:
         send_alert(
             f"GitHub Trending 任务异常（{date}）",
@@ -180,9 +178,9 @@ def run_all(
 
 
 def run_reparse(snapshot_date: str, periods: list[Period]) -> dict[str, Any]:
-    """从归档的原始 HTML 重新解析入库，不发起任何网络请求。
+    """Reparse archived HTML without issuing network requests.
 
-    解析器修好后补数据、或想抽取当初没提取的字段时用这个。
+    This supports parser repairs and extraction of newly introduced fields.
     """
     init_db()
     stats: dict[str, Any] = {"snapshot_date": snapshot_date, "periods": {}}

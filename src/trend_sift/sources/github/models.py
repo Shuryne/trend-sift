@@ -1,4 +1,4 @@
-"""领域对象。刻意保持成不可变的纯数据结构，方便在各层之间传递。"""
+"""Immutable domain objects passed between GitHub pipeline stages."""
 
 from dataclasses import dataclass
 
@@ -7,7 +7,7 @@ from .config import Period
 
 @dataclass(frozen=True, slots=True)
 class RawPage:
-    """一次抓取的原始响应，未经解析。"""
+    """Unparsed response captured from one trending-page request."""
 
     snapshot_date: str  # YYYY-MM-DD (CST)
     period: Period
@@ -19,7 +19,7 @@ class RawPage:
 
 @dataclass(frozen=True, slots=True)
 class RepoSnapshot:
-    """从榜单页面解析出的单个仓库条目，对应 snapshots 表一行。"""
+    """One repository entry parsed from a trending page."""
 
     snapshot_date: str
     period: Period

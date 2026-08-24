@@ -1,11 +1,7 @@
-"""用 GitHub 官方 REST API 补全仓库元信息。
+"""Enrich trending repositories through the official GitHub REST API.
 
-榜单页面只给一句英文描述，靠它写摘要太单薄。这里补 topics 和 README 开头，
-让 LLM 有足够上下文写出说人话的一句中文。
-
-限流：匿名 60 次/小时，带 token 5000 次/小时。每个仓库最多消耗 2 次调用
-（元信息 + README）。剩余额度不足时主动停止并降级为仅用榜单描述写摘要，
-而不是撞墙报错。配置 token 的步骤见 README「生成 GITHUB_TOKEN」。
+Topics and README excerpts provide better summary context. Enrichment stops before
+exhausting the API quota and falls back to the description already on the board.
 """
 
 import base64
@@ -24,10 +20,9 @@ from ...core.store import connect, now_iso
 log = logging.getLogger(__name__)
 
 API_BASE = "https://api.github.com"
-# 入库时保留的 README 长度。比喂给 LLM 的 summarize.README_PROMPT_CHARS 更长，
-# 留出余量：改 prompt 想多喂一些时不必重新调 API 拉一遍。
+# Keep more README text than the current prompt needs to allow prompt revisions.
 README_MAX_CHARS = 2000
-# 元信息缓存有效期。topics 变化很慢，没必要每天重拉。
+# Repository metadata changes slowly, so a weekly refresh is sufficient.
 ENRICH_TTL_DAYS = 7
 
 
@@ -43,7 +38,7 @@ class RepoMeta:
 
 
 class RateLimited(Exception):
-    """额度耗尽。调用方应停止富化，降级为仅用榜单描述写摘要。"""
+    """Signal that callers should stop enrichment and use board descriptions."""
 
 
 def _headers() -> dict[str, str]:
@@ -86,7 +81,7 @@ def _fetch_readme(client: httpx.Client, full_name: str) -> str | None:
     try:
         data = resp.json()
         raw = base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
-    except Exception:  # noqa: BLE001 — README 编码千奇百怪，失败就当没有
+    except Exception:  # noqa: BLE001 — tolerate arbitrary README encodings
         return None
     return raw[:README_MAX_CHARS].strip() or None
 
@@ -153,9 +148,9 @@ def _save(conn: sqlite3.Connection, meta: RepoMeta) -> None:
 
 
 def enrich_repos(full_names: list[str], force: bool = False) -> dict[str, int]:
-    """批量富化。已缓存且未过期的仓库直接跳过。
+    """Enrich repositories in batches while honoring fresh cache entries.
 
-    返回 {"enriched": n, "cached": n, "failed": n, "skipped_rate_limit": n}
+    Returns ``enriched``, ``cached``, ``failed``, and ``skipped_rate_limit`` counts.
     """
     stats = {"enriched": 0, "cached": 0, "failed": 0, "skipped_rate_limit": 0}
 

@@ -1,17 +1,8 @@
-"""LLM 客户端：结构化输出三级降级 + 同模式内重采样重试。
+"""OpenAI-compatible LLM client with output fallback and content resampling.
 
-输出模式按能力从强到弱依次尝试，首次探测后记住结果：
-
-    1. json_schema strict  —— 服务端保证结构，最可靠
-    2. json_object         —— 服务端保证是合法 JSON，字段靠 prompt 约束
-    3. 纯文本 + 提取       —— 从 markdown 代码块或裸文本里抠 JSON
-
-两条不变量（背景与实测数据见 README「摘要生成」「工程注意事项」）：
-
-  - 重试不跨模式。「格式不支持」降级模式且不消耗重试次数；「内容为空」
-    耗尽次数直接抛，绝不降级 —— 降级会掩盖真正的原因。
-  - 这层重试与 SDK 的 `max_retries` 正交：后者管连接错误和 429/5xx，
-    这里管「HTTP 200 但内容不可用」。
+Output modes are attempted from strongest to weakest: strict JSON Schema, JSON
+object, and plain text with JSON extraction. SDK retries handle transport and server
+errors; this module handles successful responses whose content is unusable.
 """
 
 import json
@@ -29,7 +20,7 @@ log = logging.getLogger(__name__)
 _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 _BARE_JSON_RE = re.compile(r"\{.*\}", re.S)
 
-# 模块级缓存：None=未探测，其余为已确认可用的模式
+# Process-local cache of the provider's confirmed output mode.
 _mode: str | None = None
 
 
@@ -38,7 +29,7 @@ class LLMError(Exception):
 
 
 class _FormatUnsupported(Exception):
-    """服务商不支持该 response_format —— 换模式重来，不消耗重试次数。"""
+    """Signal that the provider does not support the requested response format."""
 
 
 class _EmptyContent(LLMError):
@@ -70,7 +61,7 @@ def _client() -> OpenAI:
 
 
 def _extract_json(text: str) -> dict[str, Any]:
-    """从可能包着 markdown 代码块或解释文字的响应里抠出 JSON。"""
+    """Extract a JSON object from plain text or a Markdown code block."""
     for pattern in (_JSON_BLOCK_RE, _BARE_JSON_RE):
         m = pattern.search(text)
         if m:
@@ -102,11 +93,11 @@ def _attempt(
     schema: dict[str, Any],
     max_tokens: int,
 ) -> dict[str, Any]:
-    """发一次请求并解析。
+    """Send one request and parse its response.
 
     Raises:
-        _FormatUnsupported: 服务商不支持该 response_format。
-        LLMError: 其余任何失败（调用出错、空正文、JSON 非法、缺必填字段）。
+        _FormatUnsupported: The provider rejects the response format.
+        LLMError: The request or returned content is unusable.
     """
     kwargs: dict[str, Any] = {
         "model": settings.llm_model,
@@ -128,9 +119,8 @@ def _attempt(
     choice = resp.choices[0]
     content = (choice.message.content or "").strip()
     if not content:
-        # 关键：空内容不是「该模式不支持」，抛 LLMError 而非 _FormatUnsupported。
-        # 推理模型的 reasoning token 也计入 max_tokens，额度太小会导致推理
-        # 耗尽、正文为空 —— 此时降级模式只会掩盖真正的原因。
+        # Empty content does not imply an unsupported format. Reasoning tokens share
+        # the output budget and can exhaust it before visible content is produced.
         reasoning = getattr(
             getattr(resp.usage, "completion_tokens_details", None),
             "reasoning_tokens",
@@ -157,15 +147,15 @@ def complete_json(
     max_tokens_cap: int | None = None,
     attempts: int = 3,
 ) -> dict[str, Any]:
-    """要求模型返回符合 schema 的 JSON，自动按能力降级，内容不可用时重采样。
+    """Request schema-compatible JSON with format fallback and resampling.
 
-    schema 在 json_object / 纯文本模式下不会被服务端强制，但仍会拼进
-    system prompt 作为约束，并在返回后做必填字段校验。
+    Providers do not enforce the schema in JSON-object or text mode, so the schema
+    is included in the prompt and required fields are validated after parsing.
     """
     global _mode
 
     client = _client()
-    # schema 始终告知模型，弱模式下这是唯一的结构约束来源
+    # Always include the schema because it is the only constraint in weaker modes.
     sys_prompt = (
         f"{system}\n\n"
         f"你必须只返回一个 JSON 对象，不要有任何解释或 markdown 代码块。"
@@ -197,7 +187,7 @@ def complete_json(
                 data = _attempt(client, mode, messages, schema, request_max_tokens)
                 break
             except _FormatUnsupported as exc:
-                # 降级到下一档，不算失败，也不消耗重试次数（重试也还是不支持）
+                # Falling back does not consume a content retry.
                 log.info("模式 %s 不被服务商支持，降级", mode)
                 last_error = exc
                 break
@@ -228,10 +218,10 @@ def complete_json(
                 if attempt == attempts:
                     raise LLMError(f"重试 {attempts} 次仍失败：{exc}") from exc
                 log.warning("第 %d/%d 次内容不可用，重采样重试：%s", attempt, attempts, exc)
-                time.sleep(attempt)  # 1s、2s……给限流一点缓冲
+                time.sleep(attempt)  # Add a small delay before resampling.
 
         if data is None:
-            continue  # 该模式不被支持，试下一档
+            continue  # Try the next mode after a format rejection.
 
         if _mode != mode:
             log.info("LLM 结构化输出模式已确定为：%s", mode)
@@ -242,7 +232,7 @@ def complete_json(
 
 
 def probe() -> str:
-    """探测并返回可用的结构化输出模式，用于 doctor 命令。"""
+    """Probe and return the structured-output mode used by the doctor command."""
     complete_json(
         system="你是一个测试助手。",
         user='返回 {"ok": true}',

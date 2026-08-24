@@ -1,14 +1,7 @@
-"""GitHub Trending 的持久化：gh_* 五张表的 DDL 与第 0/1 层读写。
+"""GitHub persistence schema plus raw-page and snapshot operations.
 
-  gh_raw_pages      第 0 层  原始 HTML 归档，gzip 存储，可用于重放解析
-  gh_snapshots      第 1 层  结构化快照，只 INSERT 永不 UPDATE，时序数据的来源
-  gh_repos          第 2 层  仓库元信息，缓慢变化，按 enriched_at 判断是否过期
-  gh_summaries      第 3 层  LLM 中文摘要，按 prompt_version 版本化，可重算
-  gh_notifications  第 4 层  推送记录，推送幂等的依据
-
-第 2/3/4 层的读写留在各自的生产者模块（enrich.py / summarize.py / notify.py）：
-它们的 SQL 与写入时机同 API 调用、prompt 版本、推送动作强耦合，拆到这里
-反而要来回翻两个文件。本模块只持有 DDL 和没有单一生产者的第 0/1 层。
+Enrichment, summary, and notification writes stay with their producing modules because
+their SQL is coupled to API calls, prompt versions, and delivery semantics.
 """
 
 import gzip
@@ -77,12 +70,12 @@ CREATE TABLE IF NOT EXISTS gh_notifications (
 
 
 # --------------------------------------------------------------------------
-# 第 0 层：原始 HTML
+# Layer 0: archived raw HTML.
 # --------------------------------------------------------------------------
 
 
 def save_raw_page(conn: sqlite3.Connection, page: RawPage) -> None:
-    """存档原始 HTML。同一天同一榜单重复抓取时覆盖，保留最后一次。"""
+    """Archive raw HTML, retaining the latest response for a period and date."""
     conn.execute(
         """
         INSERT INTO gh_raw_pages (snapshot_date, period, url, http_status, html_gz, fetched_at)
@@ -105,7 +98,7 @@ def save_raw_page(conn: sqlite3.Connection, page: RawPage) -> None:
 
 
 def load_raw_page(conn: sqlite3.Connection, snapshot_date: str, period: Period) -> str | None:
-    """取回历史 HTML，用于重放解析。"""
+    """Load archived HTML for parser replay."""
     row = conn.execute(
         "SELECT html_gz FROM gh_raw_pages WHERE snapshot_date = ? AND period = ?",
         (snapshot_date, period),
@@ -114,12 +107,12 @@ def load_raw_page(conn: sqlite3.Connection, snapshot_date: str, period: Period) 
 
 
 # --------------------------------------------------------------------------
-# 第 1 层：结构化快照
+# Layer 1: immutable structured snapshots.
 # --------------------------------------------------------------------------
 
 
 def save_snapshots(conn: sqlite3.Connection, snaps: Iterable[RepoSnapshot]) -> int:
-    """写入快照。同日同榜同仓库已存在则跳过 —— 这让重跑天然幂等。"""
+    """Insert snapshots idempotently without replacing existing rows."""
     rows = [
         (
             s.snapshot_date,
@@ -150,7 +143,7 @@ def save_snapshots(conn: sqlite3.Connection, snaps: Iterable[RepoSnapshot]) -> i
 
 
 def repos_seen_before(conn: sqlite3.Connection, snapshot_date: str) -> set[str]:
-    """在 snapshot_date 之前就出现过的仓库，用于识别「首次上榜」。"""
+    """Return repositories observed before the requested snapshot date."""
     rows = conn.execute(
         "SELECT DISTINCT full_name FROM gh_snapshots WHERE snapshot_date < ?",
         (snapshot_date,),
@@ -159,10 +152,9 @@ def repos_seen_before(conn: sqlite3.Connection, snapshot_date: str) -> set[str]:
 
 
 def distinct_repos_on(conn: sqlite3.Connection, snapshot_date: str) -> list[sqlite3.Row]:
-    """当日去重后的仓库列表。同一仓库出现在多个榜时，取排名最靠前的那条。
+    """Return repositories deduplicated across periods using their best rank.
 
-    仅供富化 / 摘要 / show 命令使用 —— 它们按仓库去重处理，与周期无关。
-    推送走的是 notify.items_by_period，那里必须保留周期维度。
+    Enrichment and summaries are repository-level; notifications retain period detail.
     """
     return conn.execute(
         """

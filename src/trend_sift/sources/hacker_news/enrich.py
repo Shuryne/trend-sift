@@ -1,15 +1,8 @@
-"""补全 story 的正文，给摘要提供上下文。
+"""Fetch article text to enrich Hacker News summaries.
 
-和 GitHub 那边的富化有本质区别：GitHub 打的是官方 API，结构稳定、有限流
-配额可查；这里打的是**任意第三方网站** —— 会遇到付费墙、纯 JS 渲染、
-反爬、超时、各种编码。所以这一层的设计前提是「大概率失败」：
-
-  - 单条失败只记 debug 日志，不告警、不重试到底
-  - 超时压到 10 秒，不为一个站拖慢整批
-  - 只要 title 在，摘要就能生成，正文只是锦上添花
-
-纯文本帖（Ask HN、自述帖）没有外链，正文直接用 API 给的 story_text，
-不发任何网络请求。
+External sites may use paywalls, client-side rendering, anti-bot controls, or unusual
+encodings. Failures therefore degrade to title-only summaries. Text posts use the API
+body directly and require no external request.
 """
 
 import logging
@@ -28,9 +21,9 @@ from ...core.store import connect, now_iso
 
 log = logging.getLogger(__name__)
 
-# 入库保留的正文长度，比喂给 LLM 的多留余量（同 github/enrich 的思路）
+# Store more article text than the current prompt consumes.
 ARTICLE_MAX_CHARS = 2500
-# 正文缓存有效期。文章内容基本不变，比 GitHub 的 7 天还可以更长
+# Published article bodies rarely change, so cache successful extraction for 30 days.
 ENRICH_TTL_DAYS = 30
 # Failed third-party pages get a short negative cache so transient failures recover tomorrow.
 FAILED_ENRICH_TTL_DAYS = 1
@@ -45,7 +38,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# 正文提取的优先级：语义标签 > 常见容器 class > 整个 body
+# Prefer semantic containers, then common content classes, then the full body.
 _CONTENT_SELECTORS = ("article", "main", '[role="main"]', ".post-content", ".entry-content")
 _DROP_TAGS = ("script", "style", "nav", "header", "footer", "aside", "noscript", "form")
 _WS_RE = re.compile(r"\s+")
@@ -71,7 +64,7 @@ def _clean(text: str) -> str:
 
 
 def _strip_html(raw: str) -> str:
-    """Algolia 的 story_text 里带 HTML 转义和 <p> 标签，拆成纯文本。"""
+    """Convert Algolia's escaped ``story_text`` HTML into plain text."""
     unescaped = (
         raw.replace("&#x2F;", "/")
         .replace("&#x27;", "'")
@@ -85,7 +78,7 @@ def _strip_html(raw: str) -> str:
 
 
 def extract_article(html: str) -> str | None:
-    """从任意网页里抠出正文。抠不准也没关系 —— LLM 对噪音有一定容忍度。"""
+    """Extract useful article text from arbitrary HTML."""
     tree = LexborHTMLParser(html)
     for tag in _DROP_TAGS:
         for node in tree.css(tag):
@@ -95,7 +88,7 @@ def extract_article(html: str) -> str | None:
         node = tree.css_first(sel)
         if node:
             text = _clean(node.text())
-            if len(text) > 200:  # 太短说明选错了容器，继续往下试
+            if len(text) > 200:  # Short matches are likely navigation or metadata.
                 return text[:ARTICLE_MAX_CHARS]
 
     body = tree.css_first("body")
@@ -145,7 +138,7 @@ def fetch_article(client: httpx.Client, url: str) -> ArticleFetch:
 
     try:
         text = extract_article(resp.text)
-    except Exception as exc:  # noqa: BLE001 — 页面结构千奇百怪，失败就当没有
+    except Exception as exc:  # noqa: BLE001 — tolerate arbitrary page structures
         log.debug("%s 正文提取失败：%s", url, exc)
         return ArticleFetch(None, "extract_empty")
     return ArticleFetch(text, "ok" if text else "extract_empty")
@@ -185,10 +178,9 @@ def _save(conn: sqlite3.Connection, meta: StoryMeta) -> None:
 def enrich_stories(
     stories: list[tuple[str, str | None, str | None]], force: bool = False
 ) -> dict[str, int]:
-    """stories 是 [(object_id, url, story_text_raw), ...]。
+    """Enrich ``(object_id, url, story_text_raw)`` tuples.
 
-    返回 {"enriched": n, "cached": n, "no_url": n, "failed": n}
-    其中 failed 指有外链但正文没抓到 —— 这不是错误，是常态。
+    The ``failed`` count means an external article was unavailable, which is expected.
     """
     stats = {
         "enriched": 0,
@@ -218,7 +210,7 @@ def enrich_stories(
                 story_text = _strip_html(story_text_raw) if story_text_raw else None
 
                 if not url:
-                    # 纯文本帖：正文就是 story_text，不发请求
+                    # Text posts already contain their body in the API response.
                     _save(conn, StoryMeta(object_id, story_text, None, None))
                     stats["no_url"] += 1
                     continue

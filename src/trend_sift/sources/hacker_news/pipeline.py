@@ -1,9 +1,7 @@
-"""Hacker News 流水线：抓取 -> 归档 -> 解析 -> 富化 -> 摘要 -> 推送。
+"""Hacker News pipeline: fetch, archive, parse, enrich, summarize, and notify.
 
-结构与 github/pipeline.py 对齐（同样以 SQLite 状态为输入输出、同样可分段
-重跑），但两条流水线是**平行的两份代码**，不共享基类。理由见 README
-「为什么不抽象数据源」：目前只有两个源，抽出来的公共接口一定是照着先写的
-那个的形状长的，另一个只能扭曲着适配。等有第三个源时共性才会真正浮现。
+Stages use SQLite as their boundary and can be rerun independently. The pipeline remains
+separate from GitHub because their source-specific fields and behavior differ materially.
 """
 
 import logging
@@ -28,7 +26,7 @@ log = logging.getLogger(__name__)
 
 
 def run_fetch(snapshot_date: str | None = None) -> dict[str, Any]:
-    """抓取某日榜单并入库。返回本次运行的统计。"""
+    """Fetch and persist one UTC day while returning run statistics."""
     day = snapshot_date or target_date()
     init_db()
 
@@ -37,7 +35,7 @@ def run_fetch(snapshot_date: str | None = None) -> dict[str, Any]:
 
     with connect() as conn:
         run_id = start_run(conn, "hn")
-        # 必须在写入今日快照前取，否则今天的帖子会被当成「以前见过」
+        # Read prior stories before today's rows affect novelty detection.
         seen_before = stories_seen_before(conn, day)
 
         try:
@@ -50,7 +48,7 @@ def run_fetch(snapshot_date: str | None = None) -> dict[str, Any]:
             stats["inserted"] = inserted
             stats["new_stories"] = len({s.object_id for s in stories} - seen_before)
             log.info("HN %s：解析 %d 条，新增 %d 条", day, len(stories), inserted)
-        except Exception as exc:  # noqa: BLE001 — 由调用方决定告警还是继续
+        except Exception as exc:  # noqa: BLE001 — let callers decide alert behavior
             log.exception("HN %s 抓取失败", day)
             error = str(exc)
 
@@ -117,7 +115,7 @@ def run_all(
     dry_run: bool = False,
     alert_on_error: bool = True,
 ) -> dict[str, Any]:
-    """完整流水线。任一阶段失败都记录并继续，最后按需告警。"""
+    """Run every stage, isolate failures, and send an alert when appropriate."""
     day = snapshot_date or target_date()
     stats: dict[str, Any] = {"snapshot_date": day}
     errors: list[str] = []
@@ -133,9 +131,9 @@ def run_all(
         try:
             result = fn()
             stats[name] = result
-            # fetch 阶段自己吞了异常并记在 errors 里，这里要捞出来
+            # Fetch records its own failure, so propagate its error list here.
             errors.extend(result.get("errors", []) if isinstance(result, dict) else [])
-        except Exception as exc:  # noqa: BLE001 — 单阶段失败不应中断整条流水线
+        except Exception as exc:  # noqa: BLE001 — isolate pipeline stages
             log.exception("HN 阶段 %s 失败", name)
             stats[name] = {"error": str(exc)}
             errors.append(f"{name}: {exc}")
@@ -143,7 +141,7 @@ def run_all(
     stats["status"] = "ok" if not errors else "partial"
     stats["errors"] = errors
 
-    # 静默失败是最糟的情况：任务挂了几周都没人发现。必须主动告警。
+    # Surface unattended failures instead of relying solely on cron logs.
     if errors and alert_on_error and not dry_run:
         send_alert(
             f"Hacker News 任务异常（{day}）",
@@ -154,7 +152,7 @@ def run_all(
 
 
 def run_reparse(snapshot_date: str) -> dict[str, Any]:
-    """从归档的原始 JSON 重新解析入库，不发起任何网络请求。"""
+    """Reparse archived JSON without issuing network requests."""
     init_db()
     with connect() as conn:
         body = load_raw_feed(conn, snapshot_date)

@@ -1,18 +1,7 @@
-"""Hacker News 的持久化：hn_* 五张表。
+"""Hacker News persistence schema plus raw-feed and snapshot operations.
 
-结构对齐 github/store.py 的分层，但字段是 HN 自己的：
-
-  hn_raw_feeds      第 0 层  Algolia 原始 JSON 归档，可用于重放解析
-  hn_snapshots      第 1 层  结构化快照，只 INSERT 永不 UPDATE
-  hn_stories        第 2 层  正文/自述内容，按 enriched_at 判断是否过期
-  hn_summaries      第 3 层  LLM 中文摘要，按 prompt_version 版本化
-  hn_notifications  第 4 层  推送记录，推送幂等的依据
-
-主键是 object_id（HN item id）而不是 GitHub 那边的 full_name —— 这是两个
-数据源不共用表结构的根本原因。
-
-与 github/store.py 同样的分工：第 2/3/4 层的读写在各自的生产者模块
-（enrich.py / summarize.py / notify.py），本模块只持有 DDL 和第 0/1 层。
+Enrichment, summary, and notification writes stay with their producing modules because
+their SQL is coupled to fetching, prompt versions, and delivery semantics.
 """
 
 import gzip
@@ -77,12 +66,12 @@ CREATE TABLE IF NOT EXISTS hn_notifications (
 
 
 # --------------------------------------------------------------------------
-# 第 0 层：原始 JSON
+# Layer 0: archived raw JSON.
 # --------------------------------------------------------------------------
 
 
 def save_raw_feed(conn: sqlite3.Connection, feed: RawFeed) -> None:
-    """存档原始响应。同一天重复抓取时覆盖，保留最后一次。"""
+    """Archive the latest raw response for a UTC date."""
     conn.execute(
         """
         INSERT INTO hn_raw_feeds (snapshot_date, url, http_status, body_gz, fetched_at)
@@ -104,7 +93,7 @@ def save_raw_feed(conn: sqlite3.Connection, feed: RawFeed) -> None:
 
 
 def load_raw_feed(conn: sqlite3.Connection, snapshot_date: str) -> str | None:
-    """取回历史 JSON，用于重放解析。"""
+    """Load archived JSON for parser replay."""
     row = conn.execute(
         "SELECT body_gz FROM hn_raw_feeds WHERE snapshot_date = ?", (snapshot_date,)
     ).fetchone()
@@ -112,12 +101,12 @@ def load_raw_feed(conn: sqlite3.Connection, snapshot_date: str) -> str | None:
 
 
 # --------------------------------------------------------------------------
-# 第 1 层：结构化快照
+# Layer 1: immutable structured snapshots.
 # --------------------------------------------------------------------------
 
 
 def save_snapshots(conn: sqlite3.Connection, snaps: Iterable[StorySnapshot]) -> int:
-    """写入快照。同日同帖已存在则跳过 —— 这让重跑天然幂等。"""
+    """Insert snapshots idempotently without replacing existing rows."""
     rows = [
         (
             s.snapshot_date,
@@ -149,7 +138,7 @@ def save_snapshots(conn: sqlite3.Connection, snaps: Iterable[StorySnapshot]) -> 
 
 
 def stories_seen_before(conn: sqlite3.Connection, snapshot_date: str) -> set[str]:
-    """在 snapshot_date 之前就出现过的帖子，用于识别「首次上榜」。"""
+    """Return stories observed before the requested snapshot date."""
     rows = conn.execute(
         "SELECT DISTINCT object_id FROM hn_snapshots WHERE snapshot_date < ?",
         (snapshot_date,),
@@ -158,7 +147,7 @@ def stories_seen_before(conn: sqlite3.Connection, snapshot_date: str) -> set[str
 
 
 def stories_on(conn: sqlite3.Connection, snapshot_date: str) -> list[sqlite3.Row]:
-    """当日榜单，按名次。HN 没有 GitHub 那种多榜并存，不需要去重聚合。"""
+    """Return one UTC day's stories in rank order."""
     return conn.execute(
         """
         SELECT object_id, rank, title, url, story_text, author,

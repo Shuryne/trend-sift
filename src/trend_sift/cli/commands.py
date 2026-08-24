@@ -33,7 +33,7 @@ def setup_logging(verbose: bool = False) -> None:
     console = logging.StreamHandler(sys.stderr)
     console.setFormatter(fmt)
 
-    # cron 场景下 stdout 会丢，日志必须落文件
+    # Cron environments may discard stdout, so always persist logs to a file.
     file_handler = RotatingFileHandler(
         settings.log_dir / "trend-sift.log",
         maxBytes=5 * 1024 * 1024,
@@ -106,7 +106,7 @@ def cmd_gh_run(args: argparse.Namespace) -> int:
 
 
 def _gh_preview(date: str | None) -> None:
-    """打印将要推送的内容 —— 结构与实际卡片一致，含折叠分界线。"""
+    """Print the pending payload using the same structure as the actual cards."""
     snapshot_date = date or today_str()
     grouped = items_by_period(snapshot_date, GH_PROMPT_VERSION)
     if not grouped:
@@ -130,7 +130,7 @@ def _gh_preview(date: str | None) -> None:
             tags = [f"⭐{fmt_num(it.stars)}", growth, it.language or ""]
             if it.days > 1:
                 tags.append(f"在榜{it.days}天")
-            fold = "  " if i > n else ""  # 折叠区内的条目缩进，和展开区区分
+            fold = "  " if i > n else ""  # Indent items in the collapsed section.
             print(f"│ {fold}{i:>2}. {it.full_name}{' 🆕' if it.is_new else ''}")
             print(f"│ {fold}     {it.summary_zh or it.description or '（无描述）'}")
             print(f"│ {fold}     {'  ·  '.join(t for t in tags if t)}")
@@ -343,7 +343,7 @@ def cmd_hn_reparse(args: argparse.Namespace) -> int:
     return 0
 
 
-# ---------------------------------------------------------------- 顶层
+# --------------------------------------------------------------- Top-level commands
 
 
 def _print_pipeline(name: str, stats: dict[str, Any]) -> None:
@@ -360,7 +360,7 @@ def _print_pipeline(name: str, stats: dict[str, Any]) -> None:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """两条流水线都跑。一条挂了不影响另一条 —— 它们没有任何共享状态。"""
+    """Run both independent pipelines without allowing one to block the other."""
     gh = gh_pipeline.run_all(period_list(), args.github_date, dry_run=args.dry_run)
     _print_pipeline("GitHub Trending", gh)
     if args.dry_run:
@@ -375,20 +375,20 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(_: argparse.Namespace) -> int:
-    """自检：确认配置和外部依赖都就绪。密钥只显示是否填写，不打印内容。"""
+    """Validate configuration and dependencies without printing secret values."""
     ok = True
     print("\n配置检查")
     print("─" * 60)
 
     def line(name: str, good: bool, detail: str) -> None:
-        """必填项：不满足就把整体判为不就绪。"""
+        """Render a required check and update the aggregate status."""
         nonlocal ok
         print(f"  {'✓' if good else '✗'} {name:<22} {detail}")
         if not good:
             ok = False
 
     def note(mark: str, name: str, detail: str) -> None:
-        """选填项：只陈述状态，不影响整体结论。"""
+        """Render an informational check without changing aggregate status."""
         print(f"  {mark} {name:<22} {detail}")
 
     line(
@@ -438,7 +438,7 @@ def cmd_doctor(_: argparse.Namespace) -> int:
         from ..core.llm import probe
 
         line("LLM 连通性", True, f"可用，结构化输出模式：{probe()}")
-    except Exception as exc:  # noqa: BLE001 — 自检要报告任何失败，不能自己挂掉
+    except Exception as exc:  # noqa: BLE001 — doctor must report every failure
         line("LLM 连通性", False, str(exc)[:70])
 
     try:
@@ -457,7 +457,7 @@ def cmd_doctor(_: argparse.Namespace) -> int:
             True,
             f"{settings.db_path.name}：GitHub {gh_n} 条/{gh_d} 天，HN {hn_n} 条/{hn_d} 天",
         )
-    except Exception as exc:  # noqa: BLE001 — 同上
+    except Exception as exc:  # noqa: BLE001 — doctor must report every failure
         line("数据库", False, str(exc)[:70])
 
     print(f"\n{'全部就绪' if ok else '存在问题，见上方 ✗'}\n")

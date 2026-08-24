@@ -1,12 +1,7 @@
-"""HN 中文摘要：让 LLM 读正文，写一句给中文技术读者看的话。
+"""Generate concise Chinese summaries for Hacker News stories.
 
-prompt 和 GitHub 那边**刻意分开**，不是为了对称好看，而是摘要对象根本不同：
-
-  GitHub —— 一个开源项目，要说清「是什么工具、解决什么问题」
-  HN     —— 一条新闻/文章/讨论，要说清「发生了什么事、结论是什么」
-
-用同一套 prompt 会让 HN 的摘要写成「本文介绍了……」这种没有信息量的句式。
-版本号也各自独立（`hn-sum-v1` vs `sum-v1`），改一边不影响另一边的缓存。
+The prompt and version remain separate from GitHub because articles and software projects
+require different summaries and should have independent cache invalidation.
 """
 
 import logging
@@ -21,7 +16,7 @@ log = logging.getLogger(__name__)
 
 PROMPT_VERSION = "hn-sum-v1"
 
-# 喂给 LLM 的正文长度。入库时保留得更长，见 enrich.ARTICLE_MAX_CHARS。
+# Limit prompt context while retaining a larger article excerpt in storage.
 ARTICLE_PROMPT_CHARS = 1800
 LLM_SYSTEM = """你是一个技术资讯摘要助手，为中文技术读者介绍 Hacker News 上的热门帖子。
 
@@ -57,7 +52,7 @@ def _payload(title: str, site: str | None, story_text: str | None, article: str 
     parts = [f"标题：{title}"]
     if site:
         parts.append(f"来源：{site}")
-    # 纯文本帖优先用 story_text —— 那就是作者自己写的正文，比抓来的更准
+    # Prefer the author's text-post body over externally extracted content.
     body = story_text or article
     if body:
         label = "帖子正文" if story_text else "文章摘录"
@@ -74,7 +69,7 @@ def summarize_one(
     story_text: str | None,
     article: str | None,
 ) -> Summary:
-    """生成一条摘要。失败不抛异常 —— 推送时会退回只显示标题。"""
+    """Generate one summary, returning an empty result for graceful fallback."""
     try:
         data = complete_json(
             LLM_SYSTEM,
@@ -118,10 +113,9 @@ def _save_summary(conn: sqlite3.Connection, s: Summary) -> None:
 
 
 def summarize_batch(stories: list[tuple[str, str]], force: bool = False) -> list[Summary]:
-    """stories 是 [(object_id, title), ...]。
+    """Summarize ``(object_id, title)`` pairs not already cached.
 
-    已有当前 PROMPT_VERSION 摘要的跳过；上次失败（summary_zh 为空）的会重试，
-    因为失败往往是限流或超时这类临时原因。
+    Empty cached results are retried because most failures are transient.
     """
     out: list[Summary] = []
     with connect() as conn:

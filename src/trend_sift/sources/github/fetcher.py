@@ -1,8 +1,4 @@
-"""抓取 GitHub Trending 页面。
-
-榜单每天只刷新一次，且没有可用的 Last-Modified / 强 ETag，因此抓取频率
-保持每天 1-2 次即可 —— 时间点的选择见 README「关于 9 点这个时间」。
-"""
+"""Fetch GitHub Trending pages for the configured periods."""
 
 import logging
 import time
@@ -23,8 +19,7 @@ from .models import RawPage
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://github.com/trending"
-# 带上常见浏览器 UA。GitHub 对匿名抓取没有反爬，但默认的 python-httpx UA
-# 更容易在未来被限流策略挑出来。
+# Use a browser-like user agent to avoid generic-client throttling policies.
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -49,14 +44,14 @@ class FetchError(Exception):
 )
 def _get(client: httpx.Client, url: str, params: dict[str, str]) -> httpx.Response:
     resp = client.get(url, params=params)
-    # 4xx 不重试（重试也没用），5xx 和超时才重试
+    # Retry server failures and timeouts; client errors are not transient.
     if resp.status_code >= 500:
         resp.raise_for_status()
     return resp
 
 
 def fetch_period(client: httpx.Client, period: Period, snapshot_date: str) -> RawPage:
-    """抓取单个榜单。spoken_language_code 留空表示不限语言。"""
+    """Fetch one period without restricting the spoken language."""
     params = {"since": period, "spoken_language_code": ""}
     resp = _get(client, BASE_URL, params)
     if resp.status_code != 200:
@@ -74,10 +69,9 @@ def fetch_period(client: httpx.Client, period: Period, snapshot_date: str) -> Ra
 
 
 def fetch_all(periods: list[Period], snapshot_date: str) -> dict[Period, RawPage | Exception]:
-    """抓取所有榜单。
+    """Fetch every requested period while isolating per-period failures.
 
-    单个榜单失败不影响其余榜单 —— 返回值里既可能是 RawPage 也可能是异常，
-    由调用方决定这次运行算 ok 还是 partial。
+    Values are either raw pages or exceptions so the caller can report partial runs.
     """
     results: dict[Period, RawPage | Exception] = {}
     with httpx.Client(headers=HEADERS, timeout=30.0, follow_redirects=True) as client:
@@ -86,7 +80,7 @@ def fetch_all(periods: list[Period], snapshot_date: str) -> dict[Period, RawPage
                 time.sleep(settings.request_delay)
             try:
                 results[period] = fetch_period(client, period, snapshot_date)
-            except Exception as exc:  # noqa: BLE001 — 逐榜隔离失败
+            except Exception as exc:  # noqa: BLE001 — isolate each period
                 log.error("抓取 %s 榜单失败：%s", period, exc)
                 results[period] = exc
     return results

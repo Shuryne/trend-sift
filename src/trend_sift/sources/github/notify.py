@@ -1,14 +1,8 @@
-"""GitHub Trending 的飞书卡片：今日 / 本周 / 本月各一张。
+"""Build one Feishu card for each GitHub Trending period.
 
-Transport concerns such as signing and HTTP delivery live in notifications/feishu.py.
-
-三条设计决策，理由见 README「推送格式」及其子节：
-
-  - **按周期拆卡**，不合并成一张列表。`stars_period` 是「该周期内新增的
-    星数」，日榜的 +800 和月榜的 +34,000 不可比，混排数字就失去意义。
-  - **前 N 名展开、其余收进折叠面板**，但全部项目都在卡片里，不做截断。
-  - **正常卡片用 JSON 2.0，告警卡留在 1.0**。注意 2.0 对未知属性直接报错
-    而非静默忽略，改字段名必须对齐官方文档。
+Period growth values are not comparable across daily, weekly, and monthly boards, so
+cards remain separate. Leading items are expanded and the remainder are collapsible.
+Transport concerns live in ``notifications.feishu``.
 """
 
 import logging
@@ -26,9 +20,9 @@ log = logging.getLogger(__name__)
 
 
 class PeriodMeta(NamedTuple):
-    title: str  # 卡片 header 标题
-    growth_label: str  # 增量星数的文案前缀，如「今日 +1,126」
-    color: str  # 卡片主题色
+    title: str  # Card header title.
+    growth_label: str  # Prefix for period-specific star growth.
+    color: str  # Card theme color.
 
 
 PERIOD_META: dict[Period, PeriodMeta] = {
@@ -36,7 +30,7 @@ PERIOD_META: dict[Period, PeriodMeta] = {
     "weekly": PeriodMeta("本周热门", "本周", "wathet"),
     "monthly": PeriodMeta("本月热门", "本月", "turquoise"),
 }
-# 发送顺序即 PERIOD_META 的声明顺序，不再单独维护一份列表
+# Preserve the declaration order as the card delivery order.
 PERIOD_ORDER: list[Period] = list(PERIOD_META)
 
 
@@ -57,11 +51,7 @@ class PushItem:
 
 
 def _item_md(idx: int, item: PushItem, period: Period) -> dict[str, Any]:
-    """单个项目 = 一个 markdown 组件，三行：标题 / 摘要 / 灰色数据。
-
-    数据行放在最后而不是紧跟标题：条目之间已经没有分割线了（`hr` 太占地方），
-    末尾这行灰字正好充当视觉分隔，把上一条的摘要和下一条的标题隔开。
-    """
+    """Render one repository as a three-line Markdown card component."""
     stats = [f"⭐{fmt_num(item.stars)}"]
     if item.stars_period:
         stats.append(f"{PERIOD_META[period].growth_label} **+{fmt_num(item.stars_period)}**")
@@ -84,11 +74,7 @@ def _item_md(idx: int, item: PushItem, period: Period) -> dict[str, Any]:
 
 
 def build_card(items: list[PushItem], period: Period, snapshot_date: str) -> dict[str, Any]:
-    """一个周期一张卡片：前 N 名展开 + 折叠面板装下剩余的全部项目。
-
-    卡片顶部的彩色 header 已经写明是哪个周期，所以卡内不再重复一个标题，
-    「查看完整榜单」按钮保留 —— 它是唯一跳到 GitHub 原榜的入口。
-    """
+    """Build a period card with leading items expanded and all others collapsed."""
     meta = PERIOD_META[period]
     new_count = sum(1 for i in items if i.is_new)
     n = settings.expanded_per_section
@@ -141,7 +127,7 @@ def build_card(items: list[PushItem], period: Period, snapshot_date: str) -> dic
             "text": {"tag": "plain_text", "content": "查看完整榜单"},
             "type": "default",
             "size": "small",
-            # 2.0 取消了 action 容器和 button.url，跳转统一走 behaviors
+            # Card schema 2.0 expresses navigation through behaviors.
             "behaviors": [
                 {
                     "type": "open_url",
@@ -156,7 +142,7 @@ def build_card(items: list[PushItem], period: Period, snapshot_date: str) -> dic
         "config": {
             "update_multi": True,
             "width_mode": "fill",
-            # 会话列表里的消息预览文案，不写的话只显示「[卡片]」
+            # Provide useful conversation-list text instead of a generic card label.
             "summary": {"content": f"{meta.title}：{len(items)} 个项目（{snapshot_date}）"},
         },
         "header": {
@@ -175,12 +161,9 @@ def build_card(items: list[PushItem], period: Period, snapshot_date: str) -> dic
 def items_by_period(
     snapshot_date: str, prompt_version: str, mode: NotifyMode | None = None
 ) -> dict[Period, list[PushItem]]:
-    """按榜单周期分组返回待推送项目，每组内按该周期的增量星数降序。
+    """Group pending items by period and order each group by period growth.
 
-    stars_period 直接取自对应周期的快照行，不做跨周期聚合（理由见模块注释）。
-
-    摘要用 LEFT JOIN 而非 INNER JOIN：榜单上有什么就推什么，摘要只是锦上添花。
-    LLM 挂了或某条超时，该项目仍然出现在卡片里，只是退回显示英文原始描述。
+    A left join keeps repositories deliverable when summaries are unavailable.
     """
     mode = mode or settings.notify_mode
     out: dict[Period, list[PushItem]] = {}
@@ -226,7 +209,7 @@ def items_by_period(
 
 
 def send_digest(grouped: dict[Period, list[PushItem]], snapshot_date: str) -> int:
-    """每个周期发一张卡片。返回成功发送的卡片数。"""
+    """Send one card per period and return the number delivered."""
     sent = 0
     for period in PERIOD_ORDER:
         items = grouped.get(period)
@@ -235,12 +218,12 @@ def send_digest(grouped: dict[Period, list[PushItem]], snapshot_date: str) -> in
         size = send_card(build_card(items, period, snapshot_date), period)
         log.info("已发送 %s 卡片：%d 个项目，%.1f KB", period, len(items), size)
         sent += 1
-        time.sleep(1)  # 避免触发飞书频率限制（5 次/秒、100 次/分）
+        time.sleep(1)  # Stay below Feishu's bot rate limits.
     return sent
 
 
 def mark_notified(grouped: dict[Period, list[PushItem]], snapshot_date: str) -> None:
-    """记录首次推送时间。同一仓库只记一次，用于后续的 🆕 标记。"""
+    """Record the first delivery date used for later novelty badges."""
     seen: dict[str, None] = {}
     for items in grouped.values():
         for i in items:

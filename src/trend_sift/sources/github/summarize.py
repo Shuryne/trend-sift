@@ -1,10 +1,7 @@
-"""中文摘要生成：让 LLM 读 README，写一句给中文技术读者看的话。
+"""Generate concise Chinese summaries from repository metadata and README excerpts.
 
-**不做任何主题筛选** —— 榜单上有什么就推什么。这里曾经有一层「是否 AI 相关」
-的判定，删除的理由见 README「为什么去掉了 AI 筛选」。
-
-摘要按 PROMPT_VERSION 存储：改 prompt 时 bump 版本号，旧摘要原样保留，
-可以直接 SQL 对比同一批项目在新旧 prompt 下的差异。
+Summaries are versioned by prompt so revisions can be recomputed without replacing
+previous results. Every trending repository is included without topic filtering.
 """
 
 import json
@@ -20,7 +17,7 @@ log = logging.getLogger(__name__)
 
 PROMPT_VERSION = "sum-v1"
 
-# 喂给 LLM 的 README 长度。入库时保留得更长，见 enrich.README_MAX_CHARS。
+# Limit prompt context while retaining a larger excerpt in storage.
 README_PROMPT_CHARS = 1500
 
 LLM_SYSTEM = """你是一个技术项目摘要助手，为中文技术读者介绍 GitHub 上的开源项目。
@@ -70,7 +67,7 @@ def summarize_one(
     topics: list[str],
     readme: str | None,
 ) -> Summary:
-    """生成一条摘要。失败不抛异常 —— 推送时会退回用榜单原始描述。"""
+    """Generate one summary, returning an empty result for graceful fallback."""
     try:
         data = complete_json(
             LLM_SYSTEM,
@@ -115,10 +112,9 @@ def _save_summary(conn: sqlite3.Connection, s: Summary) -> None:
 
 
 def summarize_batch(repos: list[tuple[str, str | None]], force: bool = False) -> list[Summary]:
-    """repos 是 [(full_name, description), ...]。
+    """Summarize ``(full_name, description)`` pairs not already cached.
 
-    已有当前 PROMPT_VERSION 摘要的跳过；上次失败（summary_zh 为空）的会重试，
-    因为失败往往是限流或超时这类临时原因。
+    Empty cached results are retried because most failures are transient.
     """
     out: list[Summary] = []
     with connect() as conn:

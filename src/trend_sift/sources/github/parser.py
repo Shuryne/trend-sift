@@ -1,12 +1,7 @@
-"""解析 GitHub Trending 页面。
+"""Parse GitHub Trending using structural selectors instead of utility classes.
 
-定位策略刻意避开 class 名：GitHub 近期把 `mr-3` 批量改成了 `tmp-mr-3`，
-说明它们的原子 class 随时会变。因此改用结构性更强的锚点：
-  - 仓库名   -> h2 下第一个 <a> 的 href
-  - 星标/fork -> href 以 /stargazers、/forks 结尾的 <a>
-  - 语言     -> span[itemprop="programmingLanguage"]（语义属性，最稳定）
-  - 增量星数 -> 文本中含 "stars today/this week/this month" 的 span
-唯一保留的 class 依赖是 article.Box-row，它是条目的容器，短期内不会动。
+Repository links, semantic attributes, and URL suffixes are more stable than GitHub's
+frequently changing atomic CSS classes. ``article.Box-row`` remains the item boundary.
 """
 
 import re
@@ -21,7 +16,7 @@ _STARS_PERIOD_RE = re.compile(r"([\d,]+)\s+stars?\s+(?:today|this week|this mont
 
 
 class ParseError(Exception):
-    """页面结构变化导致无法解析时抛出，由上层决定是告警还是降级。"""
+    """Signal that the returned page no longer matches the expected structure."""
 
 
 def _to_int(text: str | None) -> int | None:
@@ -50,7 +45,7 @@ def _parse_article(
         return None
     href = (heading.attributes.get("href") or "").strip()
     full_name = href.lstrip("/")
-    # href 形如 /owner/repo，其他形状都说明结构变了，跳过而不是硬塞脏数据
+    # Valid repository links have exactly the /owner/repository shape.
     if full_name.count("/") != 1 or not all(full_name.split("/")):
         return None
 
@@ -86,11 +81,10 @@ def _parse_article(
 def parse_trending(
     html: str, snapshot_date: str, period: Period, fetched_at: str
 ) -> list[RepoSnapshot]:
-    """解析榜单 HTML，返回按页面顺序排名的仓库列表。
+    """Parse repositories in their original page order.
 
     Raises:
-        ParseError: 页面里一个 article.Box-row 都找不到 —— 几乎可以肯定是
-            GitHub 改版或返回了错误页，此时应告警而不是当成「今天没数据」。
+        ParseError: No valid item container was found in the response.
     """
     tree = LexborHTMLParser(html)
     articles = tree.css("article.Box-row")
@@ -105,7 +99,7 @@ def parse_trending(
         rank += 1
         snap = _parse_article(art, snapshot_date, period, rank, fetched_at)
         if snap is None:
-            rank -= 1  # 跳过的条目不占用排名
+            rank -= 1  # Invalid entries do not consume a rank.
             continue
         out.append(snap)
 

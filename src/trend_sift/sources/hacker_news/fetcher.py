@@ -1,14 +1,7 @@
-"""从 Algolia 的 HN Search API 取某一天的高分帖。
+"""Fetch a UTC day's high-scoring stories from the Algolia HN Search API.
 
-为什么不爬 news.ycombinator.com/front?day=，也不爬 daemonology 的 HN Daily：
-
-  - 官方 HTML 页面要解析，且会 429；API 是 JSON，免费无鉴权，稳定得多。
-  - daemonology 每条只有标题和链接，**没有分数和评论数** —— 拿不到数值
-    就没法排序、设阈值、算增速，等于把选品权完全交给别人。
-
-窗口的选择见 README「HN 的取数窗口」：抓 D-lag 那一整个 UTC 日，
-而不是「现在往前 24 小时」。HN 的日期边界本来就是 UTC，跟着它走，
-重跑同一天才能得到同一批数据。
+The JSON API provides scores and comment counts needed for deterministic local ranking.
+Calendar-day UTC windows make repeated runs address the same source interval.
 """
 
 import datetime as dt
@@ -32,7 +25,7 @@ from .models import RawFeed, StorySnapshot
 log = logging.getLogger(__name__)
 
 API_URL = "https://hn.algolia.com/api/v1/search"
-# 一次多取一些再本地排序截断。原因见 _parse 的注释。
+# Fetch extra candidates before applying deterministic local ranking.
 FETCH_SIZE = 100
 
 RETRYABLE = (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError)
@@ -43,17 +36,16 @@ class FetchError(Exception):
 
 
 def target_date(lag_days: int | None = None) -> str:
-    """要抓哪一天（UTC）。默认today - hn_lag_days。
+    """Return the target UTC date, defaulting to today minus the configured lag.
 
-    用 UTC 而不是 CST：HN 的「一天」是 UTC 划分的，官方 /front?day= 也按
-    UTC 标注。跟着数据源的时区走，跨时区重跑才不会错位。
+    Following the source timezone keeps reruns stable across local timezones.
     """
     lag = settings.hn_lag_days if lag_days is None else lag_days
     return (dt.datetime.now(dt.UTC) - dt.timedelta(days=lag)).strftime("%Y-%m-%d")
 
 
 def _day_bounds(day: str) -> tuple[int, int]:
-    """把 YYYY-MM-DD 转成 [当日 00:00 UTC, 次日 00:00 UTC) 的时间戳。"""
+    """Convert a date into a half-open UTC Unix timestamp interval."""
     start = dt.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=dt.UTC)
     return int(start.timestamp()), int((start + dt.timedelta(days=1)).timestamp())
 
@@ -79,14 +71,14 @@ def build_url(day: str, min_points: int | None = None) -> str:
 )
 def _get(client: httpx.Client, url: str) -> httpx.Response:
     resp = client.get(url)
-    # 4xx 不重试（重试也没用），5xx 和超时才重试
+    # Retry server failures and timeouts; client errors are not transient.
     if resp.status_code >= 500:
         resp.raise_for_status()
     return resp
 
 
 def fetch_day(day: str, min_points: int | None = None) -> RawFeed:
-    """抓某一天的原始 JSON。解析交给 parse_feed，方便从归档重放。"""
+    """Fetch raw JSON for a date, leaving parsing to the replayable parser."""
     url = build_url(day, min_points)
     with httpx.Client(timeout=30.0, follow_redirects=True) as client:
         resp = _get(client, url)
@@ -104,13 +96,13 @@ def fetch_day(day: str, min_points: int | None = None) -> RawFeed:
 
 
 class ParseError(Exception):
-    """响应结构变化导致无法解析时抛出，由上层决定是告警还是降级。"""
+    """Signal that a response no longer matches the expected API structure."""
 
 
 def _story(hit: dict[str, Any], day: str, rank: int, fetched_at: str) -> StorySnapshot | None:
     object_id = hit.get("objectID")
     title = (hit.get("title") or "").strip()
-    # 没有 id 或标题的条目不是 story（可能是 comment 混进来了），跳过而不是塞脏数据
+    # Entries without an ID or title are not usable stories.
     if not object_id or not title:
         return None
     return StorySnapshot(
@@ -118,8 +110,7 @@ def _story(hit: dict[str, Any], day: str, rank: int, fetched_at: str) -> StorySn
         rank=rank,
         object_id=str(object_id),
         title=title,
-        # 纯文本帖（Ask HN、自述帖）没有 url 字段，保持 None，
-        # 由 models.target_url 兜底到讨论页
+        # Text posts have no external URL and fall back to their discussion page.
         url=hit.get("url") or None,
         story_text=hit.get("story_text") or None,
         author=hit.get("author") or "",
@@ -133,15 +124,12 @@ def _story(hit: dict[str, Any], day: str, rank: int, fetched_at: str) -> StorySn
 def parse_feed(
     body: str, day: str, fetched_at: str, top_n: int | None = None
 ) -> list[StorySnapshot]:
-    """解析响应，按分数降序取前 N。
+    """Parse and return the top stories ordered by score.
 
-    **本地重排而不是信任 API 的返回顺序**：空查询下 Algolia 走的是索引的
-    custom ranking，实测确实是分数降序，但这是未文档化的行为。多取 100 条
-    再自己排，成本可以忽略，换来的是排序规则完全掌握在自己手里。
+    Local sorting avoids relying on Algolia's undocumented custom ranking.
 
     Raises:
-        ParseError: 响应里没有 hits 字段 —— 几乎可以肯定是 API 变更或
-            返回了错误页，此时应告警而不是当成「今天没数据」。
+        ParseError: The response is invalid JSON or does not contain a hits array.
     """
     n = settings.hn_top_n if top_n is None else top_n
     try:
@@ -161,7 +149,7 @@ def parse_feed(
         rank += 1
         s = _story(hit, day, rank, fetched_at)
         if s is None:
-            rank -= 1  # 跳过的条目不占用排名
+            rank -= 1  # Invalid entries do not consume a rank.
             continue
         out.append(s)
 

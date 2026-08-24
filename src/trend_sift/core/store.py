@@ -1,15 +1,7 @@
-"""SQLite 连接管理与跨数据源共用的表。
+"""Shared SQLite connection management, run auditing, and time helpers.
 
-分层的动机（原始数据与派生数据严格分离）见 README「数据库设计」。
-每个数据源有自己的一组表（`github/store.py` 的 `gh_*`、`hn/store.py` 的
-`hn_*`），本模块只持有：
-
-  - 连接与事务管理（connect / WAL / 外键）
-  - runs 表：每次执行的审计记录，与数据源无关
-  - 时间工具：全项目统一用 CST，避免各处自己 datetime.now()
-
-The schema entry point combines source-specific DDL without making this module
-depend on either source at runtime.
+Each source owns its tables. This module provides transactions, WAL setup, the
+source-independent run audit table, and consistent application timestamps.
 """
 
 import json
@@ -49,7 +41,7 @@ def connect(db_path: Path | None = None) -> Generator[sqlite3.Connection]:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    # WAL 让读写不互相阻塞；外键约束默认关闭，显式打开
+    # WAL improves concurrency; foreign keys must be enabled explicitly.
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     try:
@@ -63,7 +55,7 @@ def connect(db_path: Path | None = None) -> Generator[sqlite3.Connection]:
 
 
 # --------------------------------------------------------------------------
-# runs：执行审计，所有数据源共用
+# Execution audit shared by all data sources.
 # --------------------------------------------------------------------------
 
 
