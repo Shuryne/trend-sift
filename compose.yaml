@@ -1,0 +1,21 @@
+name: trend-sift
+
+services:
+  trend-sift:
+    build:
+      context: .
+    image: trend-sift:local
+    env_file:
+      - path: .env
+        required: true
+    volumes:
+      - trend-sift-data:/var/lib/trend-sift
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  trend-sift-data:
