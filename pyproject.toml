@@ -16,11 +16,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
+    "fastapi>=0.115",
     "httpx>=0.28.1",
     "openai>=2.46.0",
     "pydantic-settings>=2.7.0",
     "selectolax>=0.3.27",
     "tenacity>=9.0.0",
+    "uvicorn>=0.34",
 ]
 
 [dependency-groups]

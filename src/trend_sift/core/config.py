@@ -2,9 +2,9 @@
 
 from pathlib import Path
 from typing import Annotated, Literal
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -22,6 +22,19 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    schedule_enabled: bool = False
+    schedule_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] = "09:00"
+    schedule_timezone: str = "Asia/Shanghai"
+
+    @field_validator("schedule_timezone")
+    @classmethod
+    def validate_schedule_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("SCHEDULE_TIMEZONE 必须是有效的 IANA 时区") from exc
+        return value
 
     llm_base_url: str = ""
     llm_api_key: str = ""
