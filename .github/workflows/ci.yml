@@ -29,12 +29,24 @@ jobs:
       - run: uv run pyright src tests
       - run: uv run pytest
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run build
+
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: docker build --tag trend-sift:test .
-      - run: docker run --rm trend-sift:test --help
+      - run: docker run --rm trend-sift:test trend-sift --help
 
   secrets:
     runs-on: ubuntu-latest

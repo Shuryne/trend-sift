@@ -1,21 +1,18 @@
 name: trend-sift
 
 services:
-  trend-sift:
-    build:
-      context: .
+  web:
+    build: .
     image: trend-sift:local
-    env_file:
-      - path: .env
-        required: true
+    env_file: .env
+    environment:
+      SCHEDULE_ENABLED: ${SCHEDULE_ENABLED:-true}
+      TREND_SIFT_DB_PATH: /var/lib/trend-sift/trending.db
+      TREND_SIFT_LOG_DIR: /var/log/trend-sift
+    ports:
+      - "${TREND_SIFT_BIND:-127.0.0.1}:${TREND_SIFT_PORT:-8111}:8000"
     volumes:
-      - trend-sift-data:/var/lib/trend-sift
+      - ./data:/var/lib/trend-sift
+      - ./logs:/var/log/trend-sift
     init: true
-    read_only: true
-    tmpfs:
-      - /tmp
-    security_opt:
-      - no-new-privileges:true
-
-volumes:
-  trend-sift-data:
+    restart: unless-stopped

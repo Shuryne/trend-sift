@@ -43,14 +43,41 @@ Docker 用户不需要安装 Python 或 uv：
 ```bash
 cp .env.example .env
 # 编辑 .env
-docker compose build
-docker compose run --rm trend-sift doctor
-docker compose run --rm trend-sift run --dry-run
-docker compose run --rm trend-sift run
+docker compose up -d --build
 ```
 
-Compose 每次创建一个执行完即退出的任务容器。SQLite 与应用日志保存在命名卷中；项目没有
-端口，也不需要常驻容器。定时调度由宿主机 cron 完成，不在容器里运行 cron。
+一个 Web 服务内置每日定时任务，默认北京时间 **09:00** 抓取、生成摘要并推送，无需 crontab。
+时间通过 `.env` 的 `SCHEDULE_TIME` / `SCHEDULE_TIMEZONE` 配置；数据库在项目 **`data/trending.db`**，
+日志在 `logs/`。启动后等待下一次计划时间，不立即抓取或补跑。
+首次部署需填写 `.env` 并构建镜像，之后直接 `docker compose up -d`。
+
+## 网页阅读
+
+白色浅色主题，左侧 HN 日榜、右侧 GitHub 榜单，GitHub 可切换日／周／月；支持独立来源日期、
+当前两榜搜索和排序，原始描述与中文摘要直接展开。
+
+```bash
+# Docker：构建前端并启动网页及内置定时任务
+docker compose up -d --build
+```
+
+默认仅绑定服务器本机 `127.0.0.1:8111`，本地打开 http://127.0.0.1:8111。
+公网域名与反向代理配置见 [部署指南](docs/deployment.md#网页服务)。
+网页读取共享归档，后端定时任务负责生成数据；首次抓取完成前页面可能为空。
+
+前端开发（需要 Node.js 22）：
+
+```bash
+uv sync --locked
+npm --prefix web ci
+make api-dev  # 终端一
+make web-dev  # 终端二，打开 http://127.0.0.1:8111
+```
+
+本地生产预览运行 `make web-build` 后，启动 `make api-dev`，再在另一个终端执行
+`npm --prefix web run preview`，打开 http://127.0.0.1:8111。开发和预览均将 API 请求转发至 8000 端口。
+前端提交前运行 `make web-build`；Python 检查仍使用 `make check`。
+统一样式见 [网页设计规范](docs/design-system.md)。
 
 ## 配置
 
@@ -75,6 +102,9 @@ Compose 每次创建一个执行完即退出的任务容器。SQLite 与应用�
 | `EXPANDED_PER_SECTION` | 否 | `5` | 卡片默认展开条数 |
 | `TREND_SIFT_DB_PATH` | 否 | `data/trending.db` | SQLite 文件位置 |
 | `TREND_SIFT_LOG_DIR` | 否 | `logs` | 日志目录 |
+| `SCHEDULE_ENABLED` | 否 | Docker 为 `true`，原生为 `false` | 开启 Web 内置调度 |
+| `SCHEDULE_TIME` | 否 | `09:00` | 每日时间，格式 `HH:MM` |
+| `SCHEDULE_TIMEZONE` | 否 | `Asia/Shanghai` | 调度时区 |
 
 密钥只应保存在 `.env` 或部署平台的秘密管理系统中，不要提交到 Git。
 
@@ -93,10 +123,10 @@ UTC 的 `HN_LAG_DAYS` 天前。顶层命令使用两个独立日期参数，避�
 
 ## 定时运行
 
-原生部署先执行一次 `uv sync --locked --no-dev`。cron 调用 `deploy/run.sh`，脚本使用已经
-同步的环境，不会在每天运行时下载依赖或执行测试。Docker 部署使用宿主 cron 调用
-`docker compose run --rm trend-sift run`。完整示例见
-[`deploy/crontab.example`](deploy/crontab.example) 和 [部署文档](docs/deployment.md)。
+推荐使用 `docker compose up -d --build` 启动单个 Web 服务，后端单 worker 内按 `.env` 配置定时执行。
+默认每天北京时间 09:00，启动不立即运行，不补跑或整批自动重试。
+首次需数据可执行 `docker compose exec web trend-sift run --dry-run`。
+原有 cron 方式保留为可选方案，不应与内置调度同时启用。详见 [部署文档](docs/deployment.md)。
 
 ## 开发
 

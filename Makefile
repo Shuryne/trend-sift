@@ -2,7 +2,7 @@
 CLI := uv run --frozen trend-sift
 
 .PHONY: help setup doctor run dry-run test lint format typecheck check clean-db \
-	docker-build docker-dry-run
+	docker-build docker-dry-run web-install web-dev api-dev web-build web-up
 
 help:  ## 显示可用命令
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -48,4 +48,19 @@ docker-build:  ## 构建本地容器镜像
 	docker compose build
 
 docker-dry-run:  ## 使用容器运行完整预览
-	docker compose run --rm trend-sift run --dry-run
+	docker compose run --rm web trend-sift run --dry-run
+
+web-install:  ## 安装前端锁定依赖
+	npm --prefix web ci
+
+web-dev:  ## 启动前端开发服务器（另一个终端运行 api-dev）
+	npm --prefix web run dev
+
+api-dev:  ## 启动本地 API 服务
+	uv run --frozen uvicorn trend_sift.api.app:app --reload --host 127.0.0.1
+
+web-build:  ## 类型检查并构建前端
+	npm --prefix web run build
+
+web-up:  ## 构建并启动网页及每日定时服务
+	docker compose up -d --build

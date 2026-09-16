@@ -1,9 +1,6 @@
+# Optional legacy deployment only. Do not combine with SCHEDULE_ENABLED=true.
 # Native uv deployment. Run `uv sync --locked --no-dev` once during deploy.
 # Create the host log directory first: `mkdir -p /opt/trend-sift/logs`.
 CRON_TZ=Asia/Shanghai
 TREND_SIFT_DIR=/opt/trend-sift
-5 9 * * * cd $TREND_SIFT_DIR && ./deploy/run.sh >> logs/cron.log 2>&1
-
-# Docker alternative. Compose creates a fresh one-shot container for each run.
-# Linux flock prevents two scheduled containers from overlapping.
-# 5 9 * * * cd $TREND_SIFT_DIR && flock -n /tmp/trend-sift.lock docker compose run --rm trend-sift run >> logs/docker-cron.log 2>&1
+0 9 * * * cd $TREND_SIFT_DIR && ./deploy/run.sh >> logs/cron.log 2>&1
