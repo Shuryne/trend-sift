@@ -2,12 +2,25 @@
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.pem
 *.key
 
 # 运行产物
 data/
 logs/
+*.log
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite*-wal
+*.sqlite*-shm
+*.sqlite*-journal
+backups/
+trend-sift-data.tar.gz
 # cron 防重入锁
 var/
 
@@ -23,6 +36,8 @@ dist/
 .mypy_cache/
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
 # 编辑器 / IDE
@@ -32,7 +47,20 @@ htmlcov/
 !.vscode/launch.json
 !.vscode/extensions.json
 *.swp
+*.swo
+*~
 
 # 系统
 .DS_Store
 Thumbs.db
+
+# Frontend and browser verification
+node_modules/
+.npm/
+.vite/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+output/
+.playwright-cli/
