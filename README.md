@@ -70,8 +70,7 @@ docker compose up -d --build
 ```bash
 uv sync --locked
 pnpm --dir web install --frozen-lockfile
-make api-dev  # 终端一
-make web-dev  # 终端二，打开 http://127.0.0.1:8111
+make dev  # 同时启动前后端，打开 http://127.0.0.1:8111；Ctrl+C 一起停止
 ```
 
 本地生产预览运行 `make web-build` 后，启动 `make api-dev`，再在另一个终端执行

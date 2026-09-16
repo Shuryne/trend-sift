@@ -2,7 +2,7 @@
 CLI := uv run --frozen trend-sift
 
 .PHONY: help setup doctor run dry-run test lint format typecheck check clean-db \
-	docker-build docker-dry-run web-install web-dev api-dev web-build web-up
+	docker-build docker-dry-run dev web-install web-dev api-dev web-build web-up
 
 help:  ## 显示可用命令
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -52,6 +52,9 @@ docker-dry-run:  ## 使用容器运行完整预览
 
 web-install:  ## 安装前端锁定依赖
 	pnpm --dir web install --frozen-lockfile
+
+dev:  ## 同时启动本地前后端，Ctrl+C 一起停止
+	@uv run --frozen python scripts/dev.py
 
 web-dev:  ## 启动前端开发服务器（另一个终端运行 api-dev）
 	pnpm --dir web run dev
