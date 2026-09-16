@@ -132,7 +132,10 @@ def create_app(
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         if not (frontend / "index.html").is_file():
-            raise HTTPException(503, "前端尚未构建，请先在 web 目录执行 npm ci && npm run build")
+            raise HTTPException(
+                503,
+                "前端未构建，请在 web 目录执行 pnpm install --frozen-lockfile && pnpm run build",
+            )
         return FileResponse(frontend / "index.html")
 
     return app

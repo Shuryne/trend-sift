@@ -51,16 +51,16 @@ docker-dry-run:  ## 使用容器运行完整预览
 	docker compose run --rm web trend-sift run --dry-run
 
 web-install:  ## 安装前端锁定依赖
-	npm --prefix web ci
+	pnpm --dir web install --frozen-lockfile
 
 web-dev:  ## 启动前端开发服务器（另一个终端运行 api-dev）
-	npm --prefix web run dev
+	pnpm --dir web run dev
 
 api-dev:  ## 启动本地 API 服务
 	uv run --frozen uvicorn trend_sift.api.app:app --reload --host 127.0.0.1
 
 web-build:  ## 类型检查并构建前端
-	npm --prefix web run build
+	pnpm --dir web run build
 
 web-up:  ## 构建并启动网页及每日定时服务
 	docker compose up -d --build

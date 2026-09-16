@@ -107,8 +107,8 @@ trends.example.com {
 ```bash
 uv sync --locked --no-dev
 # 在 .env 中设置 SCHEDULE_ENABLED=true 及每日执行时间
-npm --prefix web ci
-npm --prefix web run build
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web run build
 uv run --frozen --no-sync uvicorn trend_sift.api.app:app --host 127.0.0.1 --port 8111 --workers 1
 ```
 

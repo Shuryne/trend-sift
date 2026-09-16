@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
 FROM node:22-slim AS frontend
 WORKDIR /web
-COPY web/package*.json ./
-RUN npm ci
+RUN corepack enable
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY web/ ./
-RUN npm run build
+RUN pnpm run build
 
 FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
 

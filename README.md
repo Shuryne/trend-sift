@@ -65,17 +65,17 @@ docker compose up -d --build
 公网域名与反向代理配置见 [部署指南](docs/deployment.md#网页服务)。
 网页读取共享归档，后端定时任务负责生成数据；首次抓取完成前页面可能为空。
 
-前端开发（需要 Node.js 22）：
+前端开发（需要 Node.js 22 和 pnpm 10.33.2）：
 
 ```bash
 uv sync --locked
-npm --prefix web ci
+pnpm --dir web install --frozen-lockfile
 make api-dev  # 终端一
 make web-dev  # 终端二，打开 http://127.0.0.1:8111
 ```
 
 本地生产预览运行 `make web-build` 后，启动 `make api-dev`，再在另一个终端执行
-`npm --prefix web run preview`，打开 http://127.0.0.1:8111。开发和预览均将 API 请求转发至 8000 端口。
+`pnpm --dir web run preview`，打开 http://127.0.0.1:8111。开发和预览均将 API 请求转发至 8000 端口。
 前端提交前运行 `make web-build`；Python 检查仍使用 `make check`。
 统一样式见 [网页设计规范](docs/design-system.md)。
 
