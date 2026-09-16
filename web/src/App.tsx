@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Github,
   Layers2,
   Newspaper,
@@ -9,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import TrendCard from "./components/TrendCard";
+import DateSelect from "./components/DateSelect";
 import {
   fetchBoard,
   isGithub,
@@ -39,13 +41,12 @@ const panels: { key: string; source: Source; period: Period; title: string }[] =
       title: "GitHub · 月榜",
     },
   ];
-type Dates = { hn: string; github: string; period: Period };
+type Dates = { date: string; period: Period };
 type PanelState = { board: Board | null; error: string; loading: boolean };
 const initialStates = (): PanelState[] =>
   panels.map(() => ({ board: null, error: "", loading: true }));
 function readLocation(): Dates {
   const params = new URLSearchParams(window.location.search);
-  const legacyDate = params.get("date") || "";
   return {
     period:
       params.get("period") === "weekly"
@@ -53,46 +54,12 @@ function readLocation(): Dates {
         : params.get("period") === "monthly"
           ? "monthly"
           : "daily",
-    hn:
-      params.get("hnDate") ??
-      (params.get("source") === "hacker-news" ? legacyDate : ""),
-    github:
-      params.get("githubDate") ??
-      (params.get("source") !== "hacker-news" ? legacyDate : ""),
+    date:
+      params.get("date") ||
+      params.get("hnDate") ||
+      params.get("githubDate") ||
+      "",
   };
-}
-function DateSelect({
-  label,
-  value,
-  dates,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  dates: string[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="date-control">
-      <CalendarDays size={14} />
-      <span>{label}</span>
-      <select
-        aria-label={`${label}日期`}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">最新归档</option>
-        {value && !dates.includes(value) && (
-          <option value={value}>{value}</option>
-        )}
-        {dates.map((date) => (
-          <option key={date} value={date}>
-            {date}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
 }
 export default function App() {
   const [dates, setDates] = useState(readLocation);
@@ -103,8 +70,7 @@ export default function App() {
   function navigate(next: Dates) {
     const params = new URLSearchParams();
     if (next.period !== "daily") params.set("period", next.period);
-    if (next.hn) params.set("hnDate", next.hn);
-    if (next.github) params.set("githubDate", next.github);
+    if (next.date) params.set("date", next.date);
     window.history.pushState(
       null,
       "",
@@ -151,37 +117,42 @@ export default function App() {
         };
       }
     };
-    void request(0, dates.hn).then((result) => update(0, result));
     void (async () => {
       const results = await Promise.all(
-        [1, 2, 3].map((index) => request(index, dates.github)),
+        panels.map((_, index) => request(index, dates.date)),
       );
-      // All GitHub periods must use the same snapshot date, even with uneven archives.
+      // Keep every source and period on the same snapshot date.
       const commonDate =
-        dates.github ||
+        dates.date ||
         results
           .flatMap((result) => result.board?.dates || [])
           .sort()
           .at(-1) ||
         "";
       await Promise.all(
-        results.map(async (result, offset) => {
+        results.map(async (result, index) => {
           if (controller.signal.aborted) return;
           const aligned =
             result.board && result.board.date !== commonDate && commonDate
-              ? await request(offset + 1, commonDate)
+              ? await request(index, commonDate)
               : result;
-          update(offset + 1, aligned);
+          update(index, aligned);
         }),
       );
     })();
     return () => controller.abort();
-  }, [dates.hn, dates.github, retry]);
-  const githubDates = [
-    ...new Set(states.slice(1).flatMap((state) => state.board?.dates || [])),
+  }, [dates.date, retry]);
+  const availableDates = [
+    ...new Set(states.flatMap((state) => state.board?.dates || [])),
   ]
     .sort()
     .reverse();
+  const currentDate =
+    dates.date ||
+    states.map((state) => state.board?.date || "").sort().at(-1) ||
+    "";
+  const previousDate = availableDates.find((date) => date < currentDate) || "";
+  const nextDate = [...availableDates].reverse().find((date) => date > currentDate) || "";
   const visibleItems = useMemo(
     () =>
       states.map((state) => {
@@ -221,33 +192,30 @@ export default function App() {
         </a>
         <div className="date-toolbar" aria-label="归档日期">
           <DateSelect
-            label="HN"
-            value={dates.hn}
-            dates={states[0].board?.dates || []}
-            onChange={(hn) => navigate({ ...dates, hn })}
+            value={dates.date}
+            dates={availableDates}
+            currentDate={currentDate}
+            onChange={(date) => navigate({ ...dates, date })}
           />
-          <DateSelect
-            label="GitHub"
-            value={dates.github}
-            dates={githubDates}
-            onChange={(github) => navigate({ ...dates, github })}
-          />
+          <div className="archive-navigation" role="group" aria-label="切换归档">
+            <button className="latest-button" disabled={!previousDate}
+              onClick={() => navigate({ ...dates, date: previousDate })}>
+              <ChevronLeft size={14} />上一期
+            </button>
+            <button className="latest-button" disabled={!nextDate}
+              onClick={() => navigate({ ...dates, date: nextDate })}>
+              下一期<ChevronRight size={14} />
+            </button>
+          </div>
           <button
-            className="latest-button"
-            disabled={!dates.hn && !dates.github}
-            onClick={() => navigate({ ...dates, hn: "", github: "" })}
+            className="refresh-button"
+            onClick={() => setRetry((value) => value + 1)}
+            disabled={states.some((state) => state.loading)}
           >
-            回到最新
+            <RefreshCw size={14} />
+            刷新
           </button>
         </div>
-        <button
-          className="refresh-button"
-          onClick={() => setRetry((value) => value + 1)}
-          disabled={states.some((state) => state.loading)}
-        >
-          <RefreshCw size={14} />
-          刷新
-        </button>
       </header>
       <main id="main">
         <div className="filterbar">
@@ -292,7 +260,7 @@ export default function App() {
             const items = visibleItems[index];
             return (
               <section
-                className="board-panel"
+                className={`board-panel ${index === 0 ? "hn-panel" : "github-panel"}`}
                 aria-labelledby={`title-${panel.key}`}
                 key={panel.key}
               >
@@ -338,7 +306,7 @@ export default function App() {
                   <div className="board-subtitle">
                     <span>
                       {board?.date ||
-                        (index === 0 ? dates.hn : dates.github) ||
+                        dates.date ||
                         "暂无归档"}
                     </span>
                   </div>
@@ -374,6 +342,7 @@ export default function App() {
                       <TrendCard
                         key={isGithub(item) ? item.full_name : item.object_id}
                         item={item}
+                        period={panel.period}
                       />
                     ))
                   ) : (
@@ -399,6 +368,22 @@ export default function App() {
             );
           })}
         </div>
+        <nav className="date-pagination" aria-label="按日期翻页">
+          <button
+            className="latest-button"
+            disabled={!previousDate}
+            onClick={() => navigate({ ...dates, date: previousDate })}
+          >
+            上一期
+          </button>
+          <button
+            className="latest-button"
+            disabled={!nextDate}
+            onClick={() => navigate({ ...dates, date: nextDate })}
+          >
+            下一期
+          </button>
+        </nav>
         <footer className="page-footer">
           <span>
             HN 按 UTC 内容日期归档，默认延迟两天抓取；切换 GitHub

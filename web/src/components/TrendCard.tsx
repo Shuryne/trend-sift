@@ -1,9 +1,8 @@
-import { ArrowUpRight, MessageCircle, Star, TrendingUp } from "lucide-react";
-import { isGithub, safeUrl, type Item } from "../lib/api";
+import { isGithub, safeUrl, type Item, type Period } from "../lib/api";
 
 const number = (value: number | null) =>
   value == null ? "—" : new Intl.NumberFormat("zh-CN").format(value);
-export default function TrendCard({ item }: { item: Item }) {
+export default function TrendCard({ item, period }: { item: Item; period: Period }) {
   const github = isGithub(item);
   const title = github ? item.full_name : item.title;
   const discussion = github
@@ -14,7 +13,7 @@ export default function TrendCard({ item }: { item: Item }) {
     : safeUrl(item.url, discussion);
   return (
     <article className="trend-card">
-      <span className="rank">{String(item.rank).padStart(2, "0")}</span>
+      <span className="rank">{item.rank}.</span>
       <div className="card-body">
         <div
           className={`card-heading ${github ? "repo-heading" : "story-heading"}`}
@@ -22,18 +21,10 @@ export default function TrendCard({ item }: { item: Item }) {
           <h3>
             <a href={url} target="_blank" rel="noreferrer">
               {title}
-              <ArrowUpRight size={16} />
             </a>
           </h3>
-          {github && (
-            <span
-              className={`board-status ${item.is_new ? "is-new" : "returning"}`}
-              title={`首次收录：${item.first_seen}；截至所选日期，跨日／周／月榜按归档日期去重累计，非连续天数。`}
-            >
-              {item.is_new
-                ? "new"
-                : `在榜${item.days_on_board}天`}
-            </span>
+          {github && item.is_new && (
+            <span className="new-marker" title="首次收录" aria-label="首次收录">🆕</span>
           )}
         </div>
         {github && item.description && (
@@ -49,30 +40,24 @@ export default function TrendCard({ item }: { item: Item }) {
         <div className="card-meta">
           {github ? (
             <>
-              <span>
-                <i className="language-dot" />
-                {item.language || "未标注语言"}
-              </span>
-              <span>
-                <Star size={14} />
-                {number(item.stars)}
-              </span>
+              <span><span aria-hidden="true">⭐</span>{number(item.stars)}</span>
               <span className="growth">
-                <TrendingUp size={14} />
-                {item.stars_period == null
-                  ? "—"
-                  : `+${number(item.stars_period)}`}{" "}
-                <span className="meta-label">本期</span>
+                {{ daily: "本日", weekly: "本周", monthly: "本月" }[period]}新增{" "}
+                {item.stars_period == null ? "—" : `+${number(item.stars_period)}`}
+              </span>
+              {item.language && <span>{item.language}</span>}
+              <span title={`首次收录：${item.first_seen}；截至所选日期，跨日／周／月榜按归档日期去重累计，非连续天数。`}>
+                在榜 {item.days_on_board} 天
               </span>
             </>
           ) : (
             <>
               <span>
-                <TrendingUp size={14} />
+                <span aria-hidden="true">🔥</span>
                 {number(item.points)} 分
               </span>
               <a href={discussion} target="_blank" rel="noreferrer">
-                <MessageCircle size={14} />
+                <span aria-hidden="true">💬</span>
                 {number(item.num_comments)} 条评论
               </a>
               <span className="domain">
