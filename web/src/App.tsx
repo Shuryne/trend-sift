@@ -121,7 +121,7 @@ export default function App() {
       const results = await Promise.all(
         panels.map((_, index) => request(index, dates.date)),
       );
-      // Keep every source and period on the same snapshot date.
+      // Align editions; the HN API maps each edition to its delayed content date.
       const commonDate =
         dates.date ||
         results
@@ -305,9 +305,9 @@ export default function App() {
                   </div>
                   <div className="board-subtitle">
                     <span>
-                      {board?.date ||
-                        dates.date ||
-                        "暂无归档"}
+                      {index === 0 && board?.content_date
+                        ? `${board.content_date} · 内容日期（UTC）`
+                        : board?.date || dates.date || "暂无归档"}
                     </span>
                   </div>
                 </header>
@@ -386,8 +386,8 @@ export default function App() {
         </nav>
         <footer className="page-footer">
           <span>
-            HN 按 UTC 内容日期归档，默认延迟两天抓取；切换 GitHub
-            周期保留所选日期。
+            日期按每日期数切换；HN 展示该期按配置回溯抓取的内容（默认两天前），
+            卡片标注 UTC 内容日期。切换 GitHub 周期保留所选日期。
           </span>
           <span>摘要由 AI 生成 · 历史条目显示最新可用摘要</span>
         </footer>

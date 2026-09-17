@@ -149,3 +149,49 @@ def test_scheduler_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         assert client.get("/api/health").status_code == 200
         assert calls == [settings.schedule_time, settings.schedule_timezone]
     assert calls[-1] == "cancelled"
+
+
+@pytest.mark.parametrize(
+    ("lag_days", "edition", "content"),
+    [
+        (2, "2026-09-17", "2026-09-15"),
+        (2, "2026-01-01", "2025-12-30"),
+        (0, "2026-09-17", "2026-09-17"),
+        (3, "2026-09-17", "2026-09-14"),
+    ],
+)
+def test_hn_edition_dates_map_to_content_dates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lag_days: int,
+    edition: str,
+    content: str,
+) -> None:
+    monkeypatch.setattr(settings, "hn_lag_days", lag_days)
+    db = tmp_path / "edition.db"
+    with TestClient(create_app(db)) as client:
+        with connect(db) as conn:
+            conn.execute(
+                "INSERT INTO hn_snapshots "
+                "(snapshot_date,rank,object_id,title,fetched_at) VALUES (?,?,?,?,?)",
+                (content, 1, "123", "Daily HN story", edition),
+            )
+        latest = client.get("/api/hacker-news?date_basis=edition").json()
+        selected = client.get(f"/api/hacker-news?date_basis=edition&date={edition}").json()
+        assert latest == selected
+        assert selected["date"] == edition
+        assert selected["dates"] == [edition]
+        assert selected["content_date"] == content
+        assert selected["items"][0]["object_id"] == "123"
+        original = client.get(f"/api/hacker-news?date={content}").json()
+        assert original["date"] == content
+        assert original["dates"] == [content]
+        assert original["items"] == selected["items"]
+        missing = client.get("/api/hacker-news?date_basis=edition&date=2020-01-10").json()
+        assert missing["date"] == "2020-01-10"
+        assert missing["items"] == []
+        assert client.get("/api/hacker-news?date_basis=invalid").status_code == 422
+        if lag_days:
+            assert (
+                client.get("/api/hacker-news?date_basis=edition&date=0001-01-01").status_code == 422
+            )

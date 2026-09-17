@@ -34,6 +34,7 @@ class GithubBoard(BaseModel):
 
 
 class HackerNewsBoard(BaseModel):
+    content_date: str | None
     date: str | None
     dates: list[str]
     updated_at: str | None

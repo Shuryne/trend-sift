@@ -23,6 +23,7 @@ export interface HackerNewsItem {
 }
 export type Item = GithubItem | HackerNewsItem;
 export interface Board {
+  content_date?: string | null;
   date: string | null;
   dates: string[];
   updated_at: string | null;
@@ -46,6 +47,7 @@ export async function fetchBoard(
   signal: AbortSignal,
 ): Promise<Board> {
   const params = new URLSearchParams({ period });
+  if (source === "hacker-news") params.set("date_basis", "edition");
   if (date) params.set("date", date);
   const response = await fetch(`/api/${source}?${params}`, { signal });
   if (!response.ok)

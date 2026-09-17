@@ -4,9 +4,9 @@ import asyncio
 import os
 import sqlite3
 from contextlib import asynccontextmanager, closing, suppress
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -103,7 +103,14 @@ def create_app(
     @app.get("/api/hacker-news", response_model=HackerNewsBoard)
     def hacker_news(
         snapshot_date: Annotated[date | None, Query(alias="date")] = None,
+        date_basis: Literal["content", "edition"] = "content",
     ) -> HackerNewsBoard:
+        # Storage and CLI use UTC content dates; the web groups boards by edition.
+        lag = timedelta(days=settings.hn_lag_days) if date_basis == "edition" else timedelta(0)
+        try:
+            content_date = snapshot_date - lag if snapshot_date else None
+        except OverflowError as exc:
+            raise HTTPException(422, "日期超出支持范围") from exc
         with closing(read_connection()) as conn:
             dates = [
                 r[0]
@@ -111,7 +118,7 @@ def create_app(
                     "SELECT DISTINCT snapshot_date FROM hn_snapshots ORDER BY snapshot_date DESC"
                 )
             ]
-            selected = snapshot_date.isoformat() if snapshot_date else next(iter(dates), None)
+            selected = content_date.isoformat() if content_date else next(iter(dates), None)
             rows = conn.execute(
                 """SELECT s.*, (SELECT summary_zh FROM hn_summaries m
                    WHERE m.object_id=s.object_id AND trim(m.summary_zh) != ''
@@ -120,8 +127,9 @@ def create_app(
                 (selected,),
             ).fetchall()
         return HackerNewsBoard(
-            date=selected,
-            dates=dates,
+            date=(date.fromisoformat(selected) + lag).isoformat() if selected else None,
+            dates=[(date.fromisoformat(day) + lag).isoformat() for day in dates],
+            content_date=selected,
             updated_at=max((r["fetched_at"] for r in rows), default=None),
             items=[HackerNewsItem.model_validate(dict(r)) for r in rows],
         )
