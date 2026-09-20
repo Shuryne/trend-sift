@@ -23,6 +23,9 @@
   --hn-heading: #986039;
   --hn-surface: #faf3eb;
   --github-surface: #eff5f1;
+  --new-surface: #fff4d6;
+  --new-text: #8a4b08;
+  --new-border: #e8c98a;
   --radius: 8px;
 }
 * {
@@ -299,7 +302,19 @@ main {
   color: var(--link);
 }
 .new-marker {
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--new-border);
+  border-radius: 6px;
+  background: var(--new-surface);
+  color: var(--new-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 .hn-panel .board-header {
   background: var(--hn-surface);
@@ -597,7 +612,7 @@ main {
 
 .repo-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 5px 8px;
 }

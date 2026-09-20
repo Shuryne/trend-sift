@@ -24,7 +24,7 @@ export default function TrendCard({ item, period }: { item: Item; period: Period
             </a>
           </h3>
           {github && item.is_new && (
-            <span className="new-marker" title="首次收录" aria-label="首次收录">🆕</span>
+            <span className="new-marker" title="本站首次收录" aria-label="本站首次收录">NEW</span>
           )}
         </div>
         {github && item.description && (
