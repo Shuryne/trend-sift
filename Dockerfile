@@ -7,7 +7,7 @@ RUN pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm run build
 
-FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.17 AS uv
 
 FROM python:3.14-slim AS builder
 COPY --from=uv /uv /uvx /bin/
