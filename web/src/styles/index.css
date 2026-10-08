@@ -19,6 +19,8 @@
   --muted: #71716a;
   --border: #e7e7e2;
   --accent: #58705a;
+  --brand: #d97757;
+  --brand-ink: #141413;
   --link: #386e68;
   --hn-heading: #986039;
   --hn-surface: #faf3eb;
@@ -90,22 +92,20 @@ button:hover:not(:disabled) {
   display: flex;
   align-items: center;
   font-size: 22px;
-  font-weight: 650;
+  font-weight: 800;
+  color: var(--brand-ink);
   letter-spacing: -0.9px;
   white-space: nowrap;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
-  width: 29px;
-  height: 29px;
-  background: #30382f;
-  color: white;
-  border-radius: 7px;
+  display: block;
+  flex-shrink: 0;
+  width: 28px;
+  height: 32px;
   margin-right: 9px;
 }
 .brand-period {
-  color: #84957e;
+  color: var(--brand);
 }
 .date-toolbar {
   display: flex;
@@ -123,6 +123,19 @@ button:hover:not(:disabled) {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 7px 8px;
+}
+.github-repo-link {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+}
+.github-repo-link:hover {
+  color: var(--text);
+  background: var(--subtle);
 }
 .date-control > span {
   font-weight: 600;
@@ -485,6 +498,11 @@ main {
   }
   .brand {
     font-size: 21px;
+  }
+  .github-repo-link {
+    margin-left: auto;
+    border-left: 0;
+    border-radius: 6px;
   }
   .date-toolbar {
     order: 3;

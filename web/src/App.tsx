@@ -3,7 +3,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Github,
-  Layers2,
   Newspaper,
   RefreshCw,
   Search,
@@ -185,9 +184,7 @@ export default function App() {
       </a>
       <header className="topbar">
         <a className="brand" href="/" aria-label="Trend Sift 首页">
-          <span className="brand-mark">
-            <Layers2 size={18} />
-          </span>
+          <img className="brand-mark" src="/brand-mark.svg" width="28" height="32" alt="" />
           trend sift<span className="brand-period">.</span>
         </a>
         <div className="date-toolbar" aria-label="归档日期">
@@ -216,6 +213,16 @@ export default function App() {
             刷新
           </button>
         </div>
+        <a
+          className="github-repo-link"
+          href="https://github.com/Shuryne/trend-sift"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="查看 Trend Sift 源码（在新标签页打开）"
+          title="查看 Trend Sift 源码"
+        >
+          <Github size={20} aria-hidden="true" />
+        </a>
       </header>
       <main id="main">
         <div className="filterbar">
