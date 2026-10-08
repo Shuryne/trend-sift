@@ -24,7 +24,7 @@ Trend Sift 是紧凑的个人趋势面板。视觉参考 Claude、ChatGPT 的克
 
 ## 字体与布局
 
-- 品牌采用书签与四角星芒图案（`web/public/brand-mark.svg`），搭配粗体小写 `trend sift.` 字标，字重 800。顶栏图标为 28×32px，浏览器图标复用该 SVG；独立应用图标见 `web/public/app-icon.svg`。
+- 品牌采用书签与四角星芒图案（`web/src/assets/brand-mark.svg`），搭配粗体小写 `trend sift.` 字标，字重 800。顶栏图标为 28×32px；浏览器标签页使用橙底应用图标 `web/src/assets/app-icon.svg`。图标由 Vite 构建为带内容哈希的 `/assets/` 资源，与生产后端的静态目录一致，更新图标时自动更换 URL。
 - 品牌橙色为 `#d97757`，字标为 `#141413`，星芒为 `#faf9f5`；颜色参考 [Anthropic 官方品牌规范](https://github.com/anthropics/skills/blob/main/skills/brand-guidelines/SKILL.md)。品牌颜色独立于榜单与交互的语义色。
 
 - 使用系统无衬线字体，不依赖外部字体服务；取消装饰性大标题和侧边栏。

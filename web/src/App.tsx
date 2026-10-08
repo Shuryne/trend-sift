@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import brandMark from "./assets/brand-mark.svg";
 import {
   ChevronLeft,
   ChevronRight,
@@ -184,7 +185,7 @@ export default function App() {
       </a>
       <header className="topbar">
         <a className="brand" href="/" aria-label="Trend Sift 首页">
-          <img className="brand-mark" src="/brand-mark.svg" width="28" height="32" alt="" />
+          <img className="brand-mark" src={brandMark} width="28" height="32" alt="" />
           trend sift<span className="brand-period">.</span>
         </a>
         <div className="date-toolbar" aria-label="归档日期">
