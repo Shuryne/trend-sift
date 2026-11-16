@@ -9,7 +9,7 @@ RUN pnpm run build
 
 FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
 
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 COPY --from=uv /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /app
@@ -17,7 +17,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
-FROM python:3.14-slim AS runtime
+FROM python:3.15-slim AS runtime
 RUN groupadd --system --gid 10001 trend-sift \
     && useradd --system --uid 10001 --gid trend-sift --home-dir /nonexistent trend-sift \
     && mkdir -p /var/lib/trend-sift /var/log/trend-sift \
